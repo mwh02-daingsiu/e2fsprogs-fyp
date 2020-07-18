@@ -1,4 +1,6 @@
 #include "config.h"
+#include "ext2fs/ext2_bmpt.h"
+#include "ext2fs/ext2fs.h"
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
@@ -151,7 +153,7 @@ done:
 			ext2_bmpt_irec_clear(&irecs[i]);
 		}
 	}
-	ext2fs_free_mem(buf);
+	ext2fs_free_mem(&buf);
 	return retval;
 }
 
@@ -174,7 +176,7 @@ static errcode_t ext2fs_increase_inds(ext2_filsys fs, ext2_ino_t ino,
 		return retval;
 	retval = ext2fs_get_array(ninds, sizeof(struct ext2_bmptirec), &irecs);
 	if (retval) {
-		ext2fs_free_mem(buf);
+		ext2fs_free_mem(&buf);
 		return retval;
 	}
 
@@ -229,8 +231,8 @@ done:
 			}
 		}
 	}
-	ext2fs_free_mem(buf);
-	ext2fs_free_mem(irecs);
+	ext2fs_free_mem(&buf);
+	ext2fs_free_mem(&irecs);
 	return retval;
 }
 
@@ -319,6 +321,15 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 	if (!(bmap_flags & BMAP_SET))
 		ext2_bmpt_irec_clear(phys_blk);
 	ext2_bmpt_irec_clear(&dbirec);
+
+	if (ext2fs_le32_to_cpu(hdr->h_magic) != EXT2_BMPT_HDR_MAGIC) {
+		if (!can_insert)
+			goto done;
+		retval = ext2fs_init_bmpt(fs, ino, inode,
+					  inode->i_flags & EXT2_FYP_DUP_RUN_FL);
+		if (retval)
+			goto done;
+	}
 
 	if (!(bmap_flags & can_insert)) {
 		if (ext2_bmpt_min_numlevels(fs, (blk_t)block) > nr_levels)
@@ -465,8 +476,8 @@ done:
 					fs, dbirec.b_blocks[j], -1);
 		}
 	}
-	ext2fs_free_mem(ind_block_buf);
-	ext2fs_free_mem(ind_irecs);
+	ext2fs_free_mem(&ind_block_buf);
+	ext2fs_free_mem(&ind_irecs);
 	return retval;
 }
 
@@ -587,7 +598,12 @@ errcode_t ext2fs_punch_bmpt(ext2_filsys fs, ext2_ino_t ino,
 		block_buf = buf;
 	}
 
-	addr_per_block = (blk_t)fs->blocksize >> 2;
+	if (ext2fs_le32_to_cpu(hdr->h_magic) != EXT2_BMPT_HDR_MAGIC) {
+		retval = 0;
+		goto done;
+	}
+
+	addr_per_block = (blk_t)fs->blocksize >> EXT2_BMPTREC_SZ;
 	nr_levels = ext2fs_le32_to_cpu(hdr->h_levels);
 
 	for (i = 0; i < nr_levels; i++)
@@ -596,7 +612,7 @@ errcode_t ext2fs_punch_bmpt(ext2_filsys fs, ext2_ino_t ino,
 	retval = bmpt_punch(fs, inode, block_buf, &hdr->h_root, nr_levels,
 			    start, count, max);
 	if (retval)
-		goto errout;
+		goto done;
 
 	if (memcmp(&root_rec, &hdr->h_root, sizeof(root_rec))) {
 		if (ext2_bmpt_rec_is_null(&hdr->h_root))
@@ -604,20 +620,26 @@ errcode_t ext2fs_punch_bmpt(ext2_filsys fs, ext2_ino_t ino,
 		retval = ext2fs_write_inode(fs, ino, inode);
 	}
 
-errout:
+done:
 	if (buf)
 		ext2fs_free_mem(&buf);
 	return retval;
 }
 
 errcode_t ext2fs_init_bmpt(ext2_filsys fs, ext2_ino_t ino,
-			   struct ext2_inode *inode,
-			   int dup_on)
+			   struct ext2_inode *inode, int dup_on)
 {
 	struct ext2_bmpthdr *hdr = (struct ext2_bmpthdr *)&inode->i_block[0];
 	hdr->h_magic = ext2fs_cpu_to_le32(EXT2_BMPT_HDR_MAGIC);
 	hdr->h_flags = dup_on ? ext2fs_cpu_to_le32(EXT2_BMPT_HDR_FLAGS_DUP) : 0;
 	hdr->h_levels = 0;
 	ext2_bmpt_rec_clear(&hdr->h_root);
+
+	hdr++;
+	hdr->h_magic = ext2fs_cpu_to_le32(EXT2_BMPT_HDR_MAGIC);
+	hdr->h_flags = 0;
+	hdr->h_levels = 0;
+	ext2_bmpt_rec_clear(&hdr->h_root);
+
 	return ext2fs_write_inode(fs, ino, inode);
 }

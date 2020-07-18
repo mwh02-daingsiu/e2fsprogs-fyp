@@ -346,6 +346,18 @@ errcode_t ext2fs_bmap2(ext2_filsys fs, ext2_ino_t ino, struct ext2_inode *inode,
 		goto done;
 	}
 
+	if (inode->i_flags & EXT2_FYP_BMPT_FL) {
+		struct ext2_bmptirec blocks_irec;
+		
+		retval = ext2fs_bmpt_bmap2(fs, ino, inode, block_buf,
+			    		   bmap_flags, block, ret_flags,
+					   &blocks_irec);
+		if (retval)
+			goto done;
+		*phys_blk = blocks_irec.b_blocks[0];
+		goto done;
+	}
+
 	if (block < EXT2_NDIR_BLOCKS) {
 		if (bmap_flags & BMAP_SET) {
 			b = *phys_blk;

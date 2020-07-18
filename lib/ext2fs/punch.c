@@ -497,6 +497,9 @@ errcode_t ext2fs_punch(ext2_filsys fs, ext2_ino_t ino, struct ext2_inode *inode,
 		return ext2fs_punch_inline_data(fs, ino, inode, start, end);
 	else if (inode->i_flags & EXT4_EXTENTS_FL)
 		retval = ext2fs_punch_extent(fs, ino, inode, start, end);
+	else if (inode->i_flags & EXT2_FYP_BMPT_FL)
+		retval = ext2fs_punch_bmpt(fs, ino, inode, block_buf, start,
+					   end);
 	else
 		retval = ext2fs_punch_ind(fs, inode, block_buf, start, end);
 	if (retval)
