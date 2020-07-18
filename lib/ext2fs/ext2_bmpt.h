@@ -46,4 +46,6 @@ static inline void ext2_bmpt_irec_clear(struct ext2_bmptirec *rec)
 	rec->b_flags = 0;
 }
 
+
+
 #endif /* _BMPT_H_ */

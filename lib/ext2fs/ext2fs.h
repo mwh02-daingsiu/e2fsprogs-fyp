@@ -969,6 +969,18 @@ extern errcode_t ext2fs_move_blocks(ext2_filsys fs,
 				    int flags);
 #endif
 
+/* bmpt.c */
+extern errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
+				   struct ext2_inode *inode, char *block_buf,
+				   int bmap_flags, blk64_t block, int *ret_flags,
+				   struct ext2_bmptirec *phys_blk);
+extern errcode_t ext2fs_punch_bmpt(ext2_filsys fs, ext2_ino_t ino,
+				   struct ext2_inode *inode, char *block_buf,
+				   blk64_t start, blk64_t end);
+extern errcode_t ext2fs_init_bmpt(ext2_filsys fs, ext2_ino_t ino,
+				  struct ext2_inode *inode,
+				  int dup_on);
+
 /* check_desc.c */
 extern errcode_t ext2fs_check_desc(ext2_filsys fs);
 

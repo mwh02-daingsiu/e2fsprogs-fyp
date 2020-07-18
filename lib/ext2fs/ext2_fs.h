@@ -143,6 +143,8 @@ struct ext2_acl_entry	/* Access Control List Entry */
 					/* same inode or on next free entry */
 };
 
+#define EXT2_FYP_ITB_N_DUPS 3 /* Metadata max extra duplications */
+
 /*
  * Structure of a blocks group descriptor
  */
@@ -155,11 +157,21 @@ struct ext2_group_desc
 	__u16	bg_free_inodes_count;	/* Free inodes count */
 	__u16	bg_used_dirs_count;	/* Directories count */
 	__u16	bg_flags;
-	__u32	bg_exclude_bitmap_lo;	/* Exclude bitmap for snapshots */
-	__u16	bg_block_bitmap_csum_lo;/* crc32c(s_uuid+grp_num+bitmap) LSB */
-	__u16	bg_inode_bitmap_csum_lo;/* crc32c(s_uuid+grp_num+bitmap) LSB */
-	__u16	bg_itable_unused;	/* Unused inodes count */
-	__u16	bg_checksum;		/* crc16(s_uuid+group_num+group_desc)*/
+	union {
+		struct {
+			__u32 bg_exclude_bitmap_lo; /* Exclude bitmap for snapshots */
+			__u16 bg_block_bitmap_csum_lo; /* crc32c(s_uuid+grp_num+bitmap) LSB */
+			__u16 bg_inode_bitmap_csum_lo; /* crc32c(s_uuid+grp_num+bitmap) LSB */
+			__u16 bg_itable_unused; /* Unused inodes count */
+			__u16 bg_checksum; /* crc16(s_uuid+group_num+group_desc)*/
+		};
+		struct {
+			__u32 bg_dup_inode_table
+				[EXT2_FYP_ITB_N_DUPS -
+				 1]; /* Duplication of bg_inode_table */
+			__u32 bg_reserved1;
+		} bg_fyp;
+	};
 };
 
 /*
@@ -323,10 +335,12 @@ struct ext2_dx_tail {
 /* EXT4_EOFBLOCKS_FL 0x00400000 was here */
 #define FS_NOCOW_FL			0x00800000 /* Do not cow file */
 #define EXT4_SNAPFILE_FL		0x01000000  /* Inode is a snapshot */
+#define EXT2_FYP_BMPT_FL		0x02000000 /* BMPT File allocation indexing */
 #define EXT4_SNAPFILE_DELETED_FL	0x04000000  /* Snapshot is being deleted */
 #define EXT4_SNAPFILE_SHRUNK_FL		0x08000000  /* Snapshot shrink has completed */
 #define EXT4_INLINE_DATA_FL		0x10000000 /* Inode has inline data */
 #define EXT4_PROJINHERIT_FL		0x20000000 /* Create with parents projid */
+#define EXT2_FYP_DUP_RUN_FL		0x40000000 /* This file contains duplicate run */
 #define EXT2_RESERVED_FL		0x80000000 /* reserved for ext2 lib */
 
 #define EXT2_FL_USER_VISIBLE		0x204BDFFF /* User visible flags */
@@ -739,7 +753,9 @@ struct ext2_super_block {
 	__le32	s_lpf_ino;		/* Location of the lost+found inode */
 	__le32  s_prj_quota_inum;	/* inode for tracking project quota */
 	__le32	s_checksum_seed;	/* crc32c(orig_uuid) if csum_seed set */
-	__le32	s_reserved[98];		/* Padding to the end of the block */
+	__le32	s_reserved[97];		/* Padding to the end of the block */
+	__u16   s_reserved2;
+	__le16  s_dupinode_dup_cnt;	/* Metadata inode duplication count */
 	__u32	s_checksum;		/* crc32c(superblock) */
 };
 
@@ -819,6 +835,7 @@ struct ext2_super_block {
 #define EXT3_FEATURE_INCOMPAT_RECOVER		0x0004 /* Needs recovery */
 #define EXT3_FEATURE_INCOMPAT_JOURNAL_DEV	0x0008 /* Journal device */
 #define EXT2_FEATURE_INCOMPAT_META_BG		0x0010
+#define EXT2_FEATURE_INCOMPAT_FYP		0x0020 /* FYP */
 #define EXT3_FEATURE_INCOMPAT_EXTENTS		0x0040
 #define EXT4_FEATURE_INCOMPAT_64BIT		0x0080
 #define EXT4_FEATURE_INCOMPAT_MMP		0x0100

@@ -558,9 +558,9 @@ static errcode_t bmpt_punch(ext2_filsys fs, struct ext2_inode *inode,
 }
 
 #define BLK_T_MAX ((blk_t)~0ULL)
-static errcode_t ext2fs_punch_bmpt(ext2_filsys fs, ext2_ino_t ino,
-				   struct ext2_inode *inode, char *block_buf,
-				   blk64_t start, blk64_t end)
+errcode_t ext2fs_punch_bmpt(ext2_filsys fs, ext2_ino_t ino,
+			    struct ext2_inode *inode, char *block_buf,
+			    blk64_t start, blk64_t end)
 {
 	struct ext2_bmpthdr *hdr = (struct ext2_bmpthdr *)&inode->i_block[0];
 	errcode_t retval;
@@ -608,4 +608,16 @@ errout:
 	if (buf)
 		ext2fs_free_mem(&buf);
 	return retval;
+}
+
+errcode_t ext2fs_init_bmpt(ext2_filsys fs, ext2_ino_t ino,
+			   struct ext2_inode *inode,
+			   int dup_on)
+{
+	struct ext2_bmpthdr *hdr = (struct ext2_bmpthdr *)&inode->i_block[0];
+	hdr->h_magic = ext2fs_cpu_to_le32(EXT2_BMPT_HDR_MAGIC);
+	hdr->h_flags = dup_on ? ext2fs_cpu_to_le32(EXT2_BMPT_HDR_FLAGS_DUP) : 0;
+	hdr->h_levels = 0;
+	ext2_bmpt_rec_clear(&hdr->h_root);
+	return ext2fs_write_inode(fs, ino, inode);
 }
