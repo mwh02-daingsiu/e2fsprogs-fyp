@@ -598,8 +598,11 @@ static errcode_t ext2fs_punch_bmpt(ext2_filsys fs, ext2_ino_t ino,
 	if (retval)
 		goto errout;
 
-	if (memcmp(&root_rec, &hdr->h_root, sizeof(root_rec)))
+	if (memcmp(&root_rec, &hdr->h_root, sizeof(root_rec))) {
+		if (ext2_bmpt_rec_is_null(&hdr->h_root))
+			hdr->h_levels = 0;
 		retval = ext2fs_write_inode(fs, ino, inode);
+	}
 
 errout:
 	if (buf)
