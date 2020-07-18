@@ -849,7 +849,7 @@ errcode_t ext2fs_read_inode(ext2_filsys fs, ext2_ino_t ino,
 errcode_t ext2fs_write_inode_full(ext2_filsys fs, ext2_ino_t ino,
 				  struct ext2_inode * inode, int bufsize)
 {
-	blk64_t block_nr;
+	blk64_t block_nr[3] = { 0 };
 	unsigned long group, block, offset;
 	errcode_t retval = 0;
 	struct ext2_inode_large *w_inode;
@@ -924,38 +924,48 @@ errcode_t ext2fs_write_inode_full(ext2_filsys fs, ext2_ino_t ino,
 		retval = EXT2_ET_MISSING_INODE_TABLE;
 		goto errout;
 	}
-	block_nr = ext2fs_inode_table_loc(fs, (unsigned) group) + block;
+	block_nr[0] = ext2fs_inode_table_loc(fs, (unsigned) group) + block;
+	if (ext2fs_has_feature_fyp(fs->super)) {
+		int j;
+		for (j = 1; j < EXT2_FYP_ITB_N_DUPS; j++)
+			block_nr[j] = ext2fs_dup_inode_table_loc(fs, group, j);
+	}
 
 	offset &= (EXT2_BLOCK_SIZE(fs->super) - 1);
 
 	ptr = (char *) w_inode;
 
 	while (length) {
+		int j, dups = ext2fs_has_feature_fyp(fs->super)
+				? EXT2_FYP_ITB_N_DUPS : 1;
+
 		clen = length;
 		if ((offset + length) > fs->blocksize)
 			clen = fs->blocksize - offset;
 
-		if (fs->icache->buffer_blk != block_nr) {
-			retval = io_channel_read_blk64(fs->io, block_nr, 1,
+		if (fs->icache->buffer_blk != block_nr[0]) {
+			retval = io_channel_read_blk64(fs->io, block_nr[0], 1,
 						     fs->icache->buffer);
 			if (retval)
 				goto errout;
-			fs->icache->buffer_blk = block_nr;
+			fs->icache->buffer_blk = block_nr[0];
 		}
-
 
 		memcpy((char *) fs->icache->buffer + (unsigned) offset,
 		       ptr, clen);
 
-		retval = io_channel_write_blk64(fs->io, block_nr, 1,
-					      fs->icache->buffer);
-		if (retval)
-			goto errout;
+		for (j = 0; j < dups; j++) {
+			retval = io_channel_write_blk64(fs->io, block_nr[j], 1,
+							fs->icache->buffer);
+			if (retval)
+				goto errout;
+		}
 
 		offset = 0;
 		ptr += clen;
 		length -= clen;
-		block_nr++;
+		for (j = 0; j < dups; j++)
+			block_nr[j]++;
 	}
 
 	fs->flags |= EXT2_FLAG_CHANGED;

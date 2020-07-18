@@ -406,10 +406,10 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 
 		if (ext2fs_cpu_to_le32(hdr->h_flags) &
 		    EXT2_BMPT_HDR_FLAGS_DUP) {
-			for (j = 0; j < EXT2_BMPT_N_DUPS; j++)
+			for (j = 0; j < fs->super->s_dupinode_dup_cnt; j++)
 				goal[j] =
 					ext2_bmpt_find_goal_noiblk(fs, ino, j);
-			for (j = 0; j < EXT2_BMPT_N_DUPS; j++) {
+			for (j = 0; j < fs->super->s_dupinode_dup_cnt; j++) {
 				retval =
 					ext2fs_alloc_block(fs, goal[j],
 							   block_buf,
