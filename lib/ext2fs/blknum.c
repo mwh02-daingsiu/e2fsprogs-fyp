@@ -294,6 +294,23 @@ blk64_t ext2fs_inode_table_loc(ext2_filsys fs, dgrp_t group)
 }
 
 /*
+ * Return the inode table block of a group
+ */
+blk_t ext2fs_dup_inode_table_loc(ext2_filsys fs, dgrp_t group, int which)
+{
+	struct ext2_group_desc *gdp;
+
+	gdp = ext2fs_group_desc(fs, fs->group_desc, group);
+	switch (which) {
+	case 1:
+		return gdp->bg_fyp.bg_dup_inode_table[0];
+	case 2:
+		return gdp->bg_fyp.bg_dup_inode_table[1];
+	}
+	return gdp->bg_inode_table;
+}
+
+/*
  * Set the inode table block of a group
  */
 void ext2fs_inode_table_loc_set(ext2_filsys fs, dgrp_t group, blk64_t blk)
@@ -304,6 +321,26 @@ void ext2fs_inode_table_loc_set(ext2_filsys fs, dgrp_t group, blk64_t blk)
 	gdp->bg_inode_table = blk;
 	if (ext2fs_has_feature_64bit(fs->super))
 		gdp->bg_inode_table_hi = (__u64) blk >> 32;
+}
+
+/*
+ * Set the inode table block of a group
+ */
+void ext2fs_dup_inode_table_loc_set(ext2_filsys fs, dgrp_t group, int which,
+				    blk_t blk)
+{
+	struct ext2_group_desc *gdp;
+
+	gdp = ext2fs_group_desc(fs, fs->group_desc, group);
+	switch (which) {
+	case 1:
+		gdp->bg_fyp.bg_dup_inode_table[0] = blk;
+		return;
+	case 2:
+		gdp->bg_fyp.bg_dup_inode_table[1] = blk;
+		return;
+	}
+	gdp->bg_inode_table = blk;
 }
 
 /*

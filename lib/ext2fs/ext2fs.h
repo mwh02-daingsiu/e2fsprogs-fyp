@@ -887,8 +887,12 @@ extern blk64_t ext2fs_inode_bitmap_loc(ext2_filsys fs, dgrp_t group);
 extern void ext2fs_inode_bitmap_loc_set(ext2_filsys fs, dgrp_t group,
 					blk64_t blk);
 extern blk64_t ext2fs_inode_table_loc(ext2_filsys fs, dgrp_t group);
+extern blk_t ext2fs_dup_inode_table_loc(ext2_filsys fs, dgrp_t group,
+					int which);
 extern void ext2fs_inode_table_loc_set(ext2_filsys fs, dgrp_t group,
 				       blk64_t blk);
+extern void ext2fs_dup_inode_table_loc_set(ext2_filsys fs, dgrp_t group,
+					   int which, blk_t blk);
 extern __u32 ext2fs_bg_free_blocks_count(ext2_filsys fs, dgrp_t group);
 extern void ext2fs_bg_free_blocks_count_set(ext2_filsys fs, dgrp_t group,
 					 __u32 n);
