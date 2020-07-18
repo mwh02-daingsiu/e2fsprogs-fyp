@@ -33,7 +33,7 @@ errcode_t io_channel_set_options(io_channel channel, const char *opts)
 	if (!channel->manager->set_option)
 		return EXT2_ET_INVALID_ARGUMENT;
 
-	options = malloc(strlen(opts)+1);
+	options = malloc(strlen(opts) + 1);
 	if (!options)
 		return EXT2_ET_NO_MEMORY;
 	strcpy(options, opts);
@@ -63,26 +63,26 @@ errcode_t io_channel_write_byte(io_channel channel, unsigned long offset,
 	EXT2_CHECK_MAGIC(channel, EXT2_ET_MAGIC_IO_CHANNEL);
 
 	if (channel->manager->write_byte)
-		return channel->manager->write_byte(channel, offset,
-						    count, data);
+		return channel->manager->write_byte(channel, offset, count,
+						    data);
 
 	return EXT2_ET_UNIMPLEMENTED;
 }
 
 errcode_t io_channel_read_blk64(io_channel channel, unsigned long long block,
-				 int count, void *data)
+				int count, void *data)
 {
 	EXT2_CHECK_MAGIC(channel, EXT2_ET_MAGIC_IO_CHANNEL);
 
 	if (channel->manager->read_blk64)
-		return (channel->manager->read_blk64)(channel, block,
-						      count, data);
+		return (channel->manager->read_blk64)(channel, block, count,
+						      data);
 
 	if ((block >> 32) != 0)
 		return EXT2_ET_IO_CHANNEL_NO_SUPPORT_64;
 
-	return (channel->manager->read_blk)(channel, (unsigned long) block,
-					     count, data);
+	return (channel->manager->read_blk)(channel, (unsigned long)block,
+					    count, data);
 }
 
 errcode_t io_channel_write_blk64(io_channel channel, unsigned long long block,
@@ -91,14 +91,49 @@ errcode_t io_channel_write_blk64(io_channel channel, unsigned long long block,
 	EXT2_CHECK_MAGIC(channel, EXT2_ET_MAGIC_IO_CHANNEL);
 
 	if (channel->manager->write_blk64)
-		return (channel->manager->write_blk64)(channel, block,
-						       count, data);
+		return (channel->manager->write_blk64)(channel, block, count,
+						       data);
 
 	if ((block >> 32) != 0)
 		return EXT2_ET_IO_CHANNEL_NO_SUPPORT_64;
 
-	return (channel->manager->write_blk)(channel, (unsigned long) block,
+	return (channel->manager->write_blk)(channel, (unsigned long)block,
 					     count, data);
+}
+
+errcode_t io_channel_write_blk64_multiple(io_channel channel,
+					  unsigned long long *block, int count,
+					  int nr_blocks, const void *data)
+{
+	int i;
+	errcode_t retval;
+
+	EXT2_CHECK_MAGIC(channel, EXT2_ET_MAGIC_IO_CHANNEL);
+
+	if (channel->manager->write_blk64) {
+		for (i = 0; i < nr_blocks; i++) {
+			retval = (channel->manager->write_blk64)(
+				channel, block[i], count, data);
+			if (retval)
+				break;
+		}
+
+		return retval;
+	}
+
+	for (i = 0; i < nr_blocks; i++) {
+		if ((block[i] >> 32) != 0)
+			return EXT2_ET_IO_CHANNEL_NO_SUPPORT_64;
+	}
+
+	for (i = 0; i < nr_blocks; i++) {
+		retval = (channel->manager->write_blk)(
+			channel, (unsigned long)block[i], count, data);
+		if (retval)
+			break;
+	}
+
+	return retval;
 }
 
 errcode_t io_channel_discard(io_channel channel, unsigned long long block,
@@ -125,7 +160,7 @@ errcode_t io_channel_zeroout(io_channel channel, unsigned long long block,
 
 errcode_t io_channel_alloc_buf(io_channel io, int count, void *ptr)
 {
-	size_t	size;
+	size_t size;
 
 	if (count == 0)
 		size = io->block_size;

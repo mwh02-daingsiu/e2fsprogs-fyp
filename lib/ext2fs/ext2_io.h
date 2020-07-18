@@ -125,6 +125,10 @@ extern errcode_t io_channel_read_blk64(io_channel channel,
 extern errcode_t io_channel_write_blk64(io_channel channel,
 					unsigned long long block,
 					int count, const void *data);
+extern errcode_t io_channel_write_blk64_multiple(io_channel channel,
+						 unsigned long long *block,
+						 int count, int nr_blocks,
+						 const void *data);
 extern errcode_t io_channel_discard(io_channel channel,
 				    unsigned long long block,
 				    unsigned long long count);

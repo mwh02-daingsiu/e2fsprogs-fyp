@@ -67,10 +67,12 @@ extern "C" {
 #include "e2_types.h"
 #include "ext2_fs.h"
 #include "ext3_extents.h"
+#include "ext2_bmpt.h"
 #else
 #include <ext2fs/ext2_types.h>
 #include <ext2fs/ext2_fs.h>
 #include <ext2fs/ext3_extents.h>
+#include <ext2fs/ext2_bmpt.h>
 #endif /* EXT2_FLAT_INCLUDES */
 
 typedef __u32 __bitwise		ext2_ino_t;
