@@ -592,7 +592,7 @@ errcode_t ext2fs_punch_bmpt(ext2_filsys fs, ext2_ino_t ino,
 		count = end - start + 1;
 
 	if (!block_buf) {
-		retval = ext2fs_get_array(3, fs->blocksize, &buf);
+		retval = ext2fs_get_array(EXT2_BMPT_MAXLEVELS, fs->blocksize, &buf);
 		if (retval)
 			return retval;
 		block_buf = buf;
