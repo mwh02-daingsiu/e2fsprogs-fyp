@@ -7,6 +7,9 @@
 	inode_ratio = 16384
 
 [fs_types]
+	ext2fyp = {
+		features = fyp
+	}
 	ext3 = {
 		features = has_journal
 	}

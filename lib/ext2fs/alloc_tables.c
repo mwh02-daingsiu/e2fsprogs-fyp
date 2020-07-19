@@ -39,16 +39,16 @@ static blk64_t flexbg_offset(ext2_filsys fs, dgrp_t group, blk64_t start_blk,
 			     ext2fs_block_bitmap bmap, int rem_grp,
 			     int elem_size)
 {
-	int		flexbg, flexbg_size, size;
-	blk64_t		last_blk, first_free = 0;
-	dgrp_t	       	last_grp;
+	int flexbg, flexbg_size, size;
+	blk64_t last_blk, first_free = 0;
+	dgrp_t last_grp;
 
 	flexbg_size = 1 << fs->super->s_log_groups_per_flex;
 	flexbg = group / flexbg_size;
 	size = rem_grp * elem_size;
 
-	if (size > (int) (fs->super->s_blocks_per_group / 4))
-		size = (int) fs->super->s_blocks_per_group / 4;
+	if (size > (int)(fs->super->s_blocks_per_group / 4))
+		size = (int)fs->super->s_blocks_per_group / 4;
 
 	/*
 	 * Don't do a long search if the previous block search is still valid,
@@ -61,17 +61,17 @@ static blk64_t flexbg_offset(ext2_filsys fs, dgrp_t group, blk64_t start_blk,
 
 	start_blk = ext2fs_group_first_block2(fs, flexbg_size * flexbg);
 	last_grp = group | (flexbg_size - 1);
-	if (last_grp > fs->group_desc_count-1)
-		last_grp = fs->group_desc_count-1;
+	if (last_grp > fs->group_desc_count - 1)
+		last_grp = fs->group_desc_count - 1;
 	last_blk = ext2fs_group_last_block2(fs, last_grp);
 
 	/* Find the first available block */
-	if (ext2fs_get_free_blocks2(fs, start_blk, last_blk, size,
-				    bmap, &first_free) == 0)
+	if (ext2fs_get_free_blocks2(fs, start_blk, last_blk, size, bmap,
+				    &first_free) == 0)
 		return first_free;
 
-	if (ext2fs_get_free_blocks2(fs, start_blk, last_blk, elem_size,
-				   bmap, &first_free) == 0)
+	if (ext2fs_get_free_blocks2(fs, start_blk, last_blk, elem_size, bmap,
+				    &first_free) == 0)
 		return first_free;
 
 	if (ext2fs_get_free_blocks2(fs, 0, last_blk, elem_size, bmap,
@@ -84,10 +84,10 @@ static blk64_t flexbg_offset(ext2_filsys fs, dgrp_t group, blk64_t start_blk,
 errcode_t ext2fs_allocate_group_table(ext2_filsys fs, dgrp_t group,
 				      ext2fs_block_bitmap bmap)
 {
-	errcode_t	retval;
-	blk64_t		group_blk, start_blk, last_blk, new_blk;
-	dgrp_t		last_grp = 0;
-	int		rem_grps = 0, flexbg_size = 0, table_offset = 0;
+	errcode_t retval;
+	blk64_t group_blk, start_blk, last_blk, new_blk;
+	dgrp_t last_grp = 0;
+	int rem_grps = 0, flexbg_size = 0, table_offset = 0;
 
 	group_blk = ext2fs_group_first_block2(fs, group);
 	last_blk = ext2fs_group_last_block2(fs, group);
@@ -99,8 +99,8 @@ errcode_t ext2fs_allocate_group_table(ext2_filsys fs, dgrp_t group,
 	    fs->super->s_log_groups_per_flex) {
 		flexbg_size = 1 << fs->super->s_log_groups_per_flex;
 		last_grp = group | (flexbg_size - 1);
-		if (last_grp > fs->group_desc_count-1)
-			last_grp = fs->group_desc_count-1;
+		if (last_grp > fs->group_desc_count - 1)
+			last_grp = fs->group_desc_count - 1;
 		rem_grps = last_grp - group + 1;
 	}
 
@@ -108,13 +108,13 @@ errcode_t ext2fs_allocate_group_table(ext2_filsys fs, dgrp_t group,
 	 * Allocate the block and inode bitmaps, if necessary
 	 */
 	if (fs->stride && !flexbg_size) {
-		retval = ext2fs_get_free_blocks2(fs, group_blk, last_blk,
-						 1, bmap, &start_blk);
+		retval = ext2fs_get_free_blocks2(fs, group_blk, last_blk, 1,
+						 bmap, &start_blk);
 		if (retval)
 			return retval;
 		start_blk += fs->inode_blocks_per_group;
-		start_blk += ((fs->stride * group) %
-			      (last_blk - start_blk + 1));
+		start_blk +=
+			((fs->stride * group) % (last_blk - start_blk + 1));
 		if (start_blk >= last_blk)
 			start_blk = group_blk;
 	} else
@@ -126,7 +126,7 @@ errcode_t ext2fs_allocate_group_table(ext2_filsys fs, dgrp_t group,
 		table_offset = flexbg_size;
 		if (group % flexbg_size)
 			prev_block = ext2fs_block_bitmap_loc(fs, group - 1) + 1;
-		else if (last_grp == fs->group_desc_count-1) {
+		else if (last_grp == fs->group_desc_count - 1) {
 			/*
 			 * If we are allocating for the last flex_bg
 			 * keep the metadata tables contiguous
@@ -139,24 +139,26 @@ errcode_t ext2fs_allocate_group_table(ext2_filsys fs, dgrp_t group,
 		}
 		/* FIXME: Take backup group descriptor blocks into account
 		 * if the flexbg allocations will grow to overlap them... */
-		start_blk = flexbg_offset(fs, group, prev_block, bmap,
-					  rem_grps, 1);
+		start_blk =
+			flexbg_offset(fs, group, prev_block, bmap, rem_grps, 1);
 		last_blk = ext2fs_group_last_block2(fs, last_grp);
 	}
 
 	if (!ext2fs_block_bitmap_loc(fs, group)) {
-		retval = ext2fs_get_free_blocks2(fs, start_blk, last_blk,
-						 1, bmap, &new_blk);
+		retval = ext2fs_get_free_blocks2(fs, start_blk, last_blk, 1,
+						 bmap, &new_blk);
 		if (retval == EXT2_ET_BLOCK_ALLOC_FAIL)
-			retval = ext2fs_get_free_blocks2(fs, group_blk,
-					last_blk, 1, bmap, &new_blk);
+			retval = ext2fs_get_free_blocks2(
+				fs, group_blk, last_blk, 1, bmap, &new_blk);
 		if (retval)
 			return retval;
 		ext2fs_mark_block_bitmap2(bmap, new_blk);
 		ext2fs_block_bitmap_loc_set(fs, group, new_blk);
 		if (flexbg_size) {
 			dgrp_t gr = ext2fs_group_of_blk2(fs, new_blk);
-			ext2fs_bg_free_blocks_count_set(fs, gr, ext2fs_bg_free_blocks_count(fs, gr) - 1);
+			ext2fs_bg_free_blocks_count_set(
+				fs, gr,
+				ext2fs_bg_free_blocks_count(fs, gr) - 1);
 			ext2fs_free_blocks_count_add(fs->super, -1);
 			ext2fs_bg_flags_clear(fs, gr, EXT2_BG_BLOCK_UNINIT);
 			ext2fs_group_desc_csum_set(fs, gr);
@@ -169,27 +171,29 @@ errcode_t ext2fs_allocate_group_table(ext2_filsys fs, dgrp_t group,
 			prev_block = ext2fs_inode_bitmap_loc(fs, group - 1) + 1;
 		else
 			prev_block = ext2fs_block_bitmap_loc(fs, group) +
-				table_offset;
+				     table_offset;
 		/* FIXME: Take backup group descriptor blocks into account
 		 * if the flexbg allocations will grow to overlap them... */
-		start_blk = flexbg_offset(fs, group, prev_block, bmap,
-					  rem_grps, 1);
+		start_blk =
+			flexbg_offset(fs, group, prev_block, bmap, rem_grps, 1);
 		last_blk = ext2fs_group_last_block2(fs, last_grp);
 	}
 
 	if (!ext2fs_inode_bitmap_loc(fs, group)) {
-		retval = ext2fs_get_free_blocks2(fs, start_blk, last_blk,
-						 1, bmap, &new_blk);
+		retval = ext2fs_get_free_blocks2(fs, start_blk, last_blk, 1,
+						 bmap, &new_blk);
 		if (retval == EXT2_ET_BLOCK_ALLOC_FAIL)
-			retval = ext2fs_get_free_blocks2(fs, group_blk,
-					 last_blk, 1, bmap, &new_blk);
+			retval = ext2fs_get_free_blocks2(
+				fs, group_blk, last_blk, 1, bmap, &new_blk);
 		if (retval)
 			return retval;
 		ext2fs_mark_block_bitmap2(bmap, new_blk);
 		ext2fs_inode_bitmap_loc_set(fs, group, new_blk);
 		if (flexbg_size) {
 			dgrp_t gr = ext2fs_group_of_blk2(fs, new_blk);
-			ext2fs_bg_free_blocks_count_set(fs, gr, ext2fs_bg_free_blocks_count(fs, gr) - 1);
+			ext2fs_bg_free_blocks_count_set(
+				fs, gr,
+				ext2fs_bg_free_blocks_count(fs, gr) - 1);
 			ext2fs_free_blocks_count_add(fs->super, -1);
 			ext2fs_bg_flags_clear(fs, gr, EXT2_BG_BLOCK_UNINIT);
 			ext2fs_group_desc_csum_set(fs, gr);
@@ -204,27 +208,27 @@ errcode_t ext2fs_allocate_group_table(ext2_filsys fs, dgrp_t group,
 
 		if (group % flexbg_size)
 			prev_block = ext2fs_inode_table_loc(fs, group - 1) +
-				fs->inode_blocks_per_group;
+				     fs->inode_blocks_per_group;
 		else
 			prev_block = ext2fs_inode_bitmap_loc(fs, group) +
-				table_offset;
+				     table_offset;
 
 		/* FIXME: Take backup group descriptor blocks into account
 		 * if the flexbg allocations will grow to overlap them... */
-		group_blk = flexbg_offset(fs, group, prev_block, bmap,
-					  rem_grps, fs->inode_blocks_per_group);
+		group_blk = flexbg_offset(fs, group, prev_block, bmap, rem_grps,
+					  fs->inode_blocks_per_group);
 		last_blk = ext2fs_group_last_block2(fs, last_grp);
 	}
 
 	if (!ext2fs_inode_table_loc(fs, group)) {
 		retval = ext2fs_get_free_blocks2(fs, group_blk, last_blk,
-						fs->inode_blocks_per_group,
-						bmap, &new_blk);
+						 fs->inode_blocks_per_group,
+						 bmap, &new_blk);
 		if (retval)
 			return retval;
 
-		ext2fs_mark_block_bitmap_range2(bmap,
-			new_blk, fs->inode_blocks_per_group);
+		ext2fs_mark_block_bitmap_range2(bmap, new_blk,
+						fs->inode_blocks_per_group);
 		if (flexbg_size) {
 			blk64_t num, blk;
 			num = fs->inode_blocks_per_group;
@@ -237,11 +241,12 @@ errcode_t ext2fs_allocate_group_table(ext2_filsys fs, dgrp_t group,
 				if (blk + num > last_blk)
 					n = last_blk - blk + 1;
 
-				ext2fs_bg_free_blocks_count_set(fs, gr,
+				ext2fs_bg_free_blocks_count_set(
+					fs, gr,
 					ext2fs_bg_free_blocks_count(fs, gr) -
-					n/EXT2FS_CLUSTER_RATIO(fs));
+						n / EXT2FS_CLUSTER_RATIO(fs));
 				ext2fs_bg_flags_clear(fs, gr,
-					EXT2_BG_BLOCK_UNINIT);
+						      EXT2_BG_BLOCK_UNINIT);
 				ext2fs_group_desc_csum_set(fs, gr);
 				ext2fs_free_blocks_count_add(fs->super, -n);
 				blk += n;
@@ -254,15 +259,49 @@ errcode_t ext2fs_allocate_group_table(ext2_filsys fs, dgrp_t group,
 	return 0;
 }
 
+errcode_t ext2fs_allocate_dup_inode_tables(ext2_filsys fs, dgrp_t group, int which,
+					   ext2fs_block_bitmap bmap)
+{
+	int retval;
+	blk64_t new_blk;
+	blk64_t group_blk_dup, last_blk_dup;
+	dgrp_t dup_grp;
+	dgrp_t last_grp = 0;
+
+	if (!ext2fs_has_feature_fyp(fs->super))
+		return 0;
+
+	last_grp = fs->group_desc_count - 1;
+	dup_grp = (group + which) % last_grp;
+	group_blk_dup = ext2fs_group_first_block2(fs, dup_grp);
+	last_blk_dup = ext2fs_group_last_block2(fs, dup_grp);
+
+	if (!ext2fs_dup_inode_table_loc(fs, group, which)) {
+		retval = ext2fs_get_free_blocks2(fs, group_blk_dup, last_blk_dup,
+						 fs->inode_blocks_per_group,
+						 bmap, &new_blk);
+		if (retval)
+			return retval;
+
+		ext2fs_mark_block_bitmap_range2(bmap, new_blk,
+						fs->inode_blocks_per_group);
+		ext2fs_dup_inode_table_loc_set(fs, group, which, new_blk);
+	}
+	return 0;
+}
+
 errcode_t ext2fs_allocate_tables(ext2_filsys fs)
 {
-	errcode_t	retval;
-	dgrp_t		i;
+	errcode_t retval;
+	dgrp_t i, max_progress;
 	struct ext2fs_numeric_progress_struct progress;
 
+	max_progress = ext2fs_has_feature_fyp(fs->super) ?
+			       fs->group_desc_count * EXT2_FYP_ITB_N_DUPS :
+			       1;
+
 	if (fs->progress_ops && fs->progress_ops->init)
-		(fs->progress_ops->init)(fs, &progress, NULL,
-					 fs->group_desc_count);
+		(fs->progress_ops->init)(fs, &progress, NULL, max_progress);
 
 	for (i = 0; i < fs->group_desc_count; i++) {
 		if (fs->progress_ops && fs->progress_ops->update)
@@ -271,8 +310,23 @@ errcode_t ext2fs_allocate_tables(ext2_filsys fs)
 		if (retval)
 			return retval;
 	}
+
+	if (ext2fs_has_feature_fyp(fs->super)) {
+		dgrp_t curr_progress = i;
+		for (i = 0; i < fs->group_desc_count; i++, curr_progress += 2) {
+			int j;
+			if (fs->progress_ops && fs->progress_ops->update)
+				(fs->progress_ops->update)(fs, &progress,
+							   curr_progress);
+			for (j = 1; j < EXT2_FYP_ITB_N_DUPS; j++) {
+				retval = ext2fs_allocate_dup_inode_tables(fs, i, j,
+								fs->block_map);
+				if (retval)
+					return retval;
+			}
+		}
+	}
 	if (fs->progress_ops && fs->progress_ops->close)
 		(fs->progress_ops->close)(fs, &progress, NULL);
 	return 0;
 }
-
