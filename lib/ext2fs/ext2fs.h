@@ -708,6 +708,8 @@ errcode_t ext2fs_new_range(ext2_filsys fs, int flags, blk64_t goal,
 #define EXT2_ALLOCRANGE_ALL_FLAGS	(0x3)
 errcode_t ext2fs_alloc_range(ext2_filsys fs, int flags, blk64_t goal,
 			     blk_t len, blk64_t *ret);
+extern errcode_t ext2fs_alloc_dup_block(ext2_filsys fs, struct ext2_bmptirec *goal,
+					char *block_buf, struct ext2_bmptirec *ret);
 
 /* alloc_sb.c */
 extern int ext2fs_reserve_super_and_bgd(ext2_filsys fs,
@@ -975,6 +977,7 @@ extern errcode_t ext2fs_move_blocks(ext2_filsys fs,
 #endif
 
 /* bmpt.c */
+extern blk_t ext2_bmpt_find_goal_noiblk(ext2_filsys fs, ext2_ino_t ino, int which);
 extern errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 				   struct ext2_inode *inode, char *block_buf,
 				   int bmap_flags, blk64_t block, int *ret_flags,

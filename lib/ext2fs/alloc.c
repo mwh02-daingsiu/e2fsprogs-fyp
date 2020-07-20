@@ -10,6 +10,7 @@
  */
 
 #include "config.h"
+#include "ext2fs/ext2_bmpt.h"
 #include <stdio.h>
 #if HAVE_UNISTD_H
 #include <unistd.h>
@@ -522,5 +523,34 @@ errcode_t ext2fs_alloc_range(ext2_filsys fs, int flags, blk64_t goal,
 	}
 
 	ext2fs_block_alloc_stats_range(fs, *ret, len, +1);
+	return retval;
+}
+
+errcode_t ext2fs_alloc_dup_block(ext2_filsys fs, struct ext2_bmptirec *goal,
+				 char *block_buf, struct ext2_bmptirec *ret)
+{
+	errcode_t retval = 0;
+	struct ext2_bmptirec dbirec;
+	int j;
+
+	ext2_bmpt_irec_clear(&dbirec);
+
+	for (j = 0; j < fs->super->s_dupinode_dup_cnt; j++) {
+		retval =
+			ext2fs_alloc_block(fs, goal->b_blocks[j],
+						block_buf,
+						&dbirec.b_blocks[j]);
+		if (retval)
+			goto done;
+	}
+
+	*ret = dbirec;
+done:
+	if (retval) {
+		for (j = 0; j < fs->super->s_dupinode_dup_cnt; j++) {
+			if (dbirec.b_blocks[j])
+				ext2fs_block_alloc_stats2(fs, dbirec.b_blocks[j], -1);
+		}
+	}
 	return retval;
 }

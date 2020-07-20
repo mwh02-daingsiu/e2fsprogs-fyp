@@ -10,6 +10,7 @@
  */
 
 #include "config.h"
+#include "ext2fs/ext2_bmpt.h"
 #include <stdio.h>
 #include <string.h>
 #if HAVE_UNISTD_H
@@ -41,10 +42,12 @@ errcode_t ext2fs_mkdir(ext2_filsys fs, ext2_ino_t parent, ext2_ino_t inum,
 	ext2_ino_t		ino = inum;
 	ext2_ino_t		scratch_ino;
 	blk64_t			blk;
+	struct ext2_bmptirec	dbirec;
 	char			*block = 0;
 	int			inline_data = 0;
 
 	EXT2_CHECK_MAGIC(fs, EXT2_ET_MAGIC_EXT2FS_FILSYS);
+	ext2_bmpt_irec_clear(&dbirec);
 
 	/*
 	 * Create a new dir with inline data iff this feature is enabled
@@ -69,10 +72,18 @@ errcode_t ext2fs_mkdir(ext2_filsys fs, ext2_ino_t parent, ext2_ino_t inum,
 	 */
 	memset(&inode, 0, sizeof(struct ext2_inode));
 	if (!inline_data) {
-		retval = ext2fs_new_block2(fs, ext2fs_find_inode_goal(fs, ino,
-								      &inode,
-								      0),
-					   NULL, &blk);
+		if (ext2fs_has_feature_fyp(fs->super)) {
+			struct ext2_bmptirec goalirec;
+			int j;
+			ext2_bmpt_irec_clear(&goalirec);
+			for (j = 0; j < fs->super->s_dupinode_dup_cnt; j++)
+				goalirec.b_blocks[j] = ext2_bmpt_find_goal_noiblk(fs, ino, j);
+			retval = ext2fs_alloc_dup_block(fs, &goalirec, NULL, &dbirec);
+		} else
+			retval = ext2fs_new_block2(fs, ext2fs_find_inode_goal(fs, ino,
+									&inode,
+									0),
+						NULL, &blk);
 		if (retval)
 			goto cleanup;
 	}
@@ -107,12 +118,21 @@ errcode_t ext2fs_mkdir(ext2_filsys fs, ext2_ino_t parent, ext2_ino_t inum,
 		inode.i_flags |= EXT4_INLINE_DATA_FL;
 		inode.i_size = EXT4_MIN_INLINE_DATA_SIZE;
 	} else {
-		if (ext2fs_has_feature_extents(fs->super))
+		if (ext2fs_has_feature_extents(fs->super)) {
 			inode.i_flags |= EXT4_EXTENTS_FL;
-		else
+			ext2fs_iblk_set(fs, &inode, 1);
+		} else if (ext2fs_has_feature_fyp(fs->super)) {
+			struct ext2_bmpthdr *hdr = (struct ext2_bmpthdr *)&inode.i_block[0];
+			inode.i_flags |= EXT2_FYP_BMPT_FL | EXT2_FYP_DUP_RUN_FL;
+			memset(inode.i_block, 0, sizeof(inode.i_block[0]) * EXT2_N_BLOCKS);
+			ext2fs_init_bmpt(fs, ino, &inode, 1);
+			ext2_bmpt_irec2rec(&dbirec, &hdr->h_root);
+			ext2fs_iblk_set(fs, &inode, fs->super->s_dupinode_dup_cnt);
+		} else {
 			inode.i_block[0] = blk;
+			ext2fs_iblk_set(fs, &inode, 1);
+		}
 		inode.i_size = fs->blocksize;
-		ext2fs_iblk_set(fs, &inode, 1);
 	}
 	inode.i_links_count = 2;
 

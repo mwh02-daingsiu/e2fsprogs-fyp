@@ -309,3 +309,134 @@ next:
 		return retval | BLOCK_ABORT;
 	return retval;
 }
+
+int ext2fs_bmpt_process_dir_block(ext2_filsys fs,
+			     int dup_on,
+			     blk64_t	*blocknr,
+			     e2_blkcnt_t blockcnt,
+			     blk64_t	ref_block EXT2FS_ATTR((unused)),
+			     int	ref_offset EXT2FS_ATTR((unused)),
+			     void	*priv_data)
+{
+	struct dir_context *ctx = (struct dir_context *) priv_data;
+	unsigned int	offset = 0;
+	unsigned int	next_real_entry = 0;
+	int		ret = 0;
+	int		changed = 0;
+	int		do_abort = 0;
+	unsigned int	rec_len, size, buflen;
+	int		entry;
+	struct ext2_dir_entry *dirent;
+	int		csum_size = 0;
+	int		inline_data;
+	errcode_t	retval = 0;
+
+	if (blockcnt < 0)
+		return 0;
+
+	entry = blockcnt ? DIRENT_OTHER_FILE : DIRENT_DOT_FILE;
+
+	/* If a dir has inline data, we don't need to read block */
+	inline_data = !!(ctx->flags & DIRENT_FLAG_INCLUDE_INLINE_DATA);
+	if (!inline_data) {
+		ctx->errcode = ext2fs_read_dir_block4(fs, *blocknr, ctx->buf, 0,
+						      ctx->dir);
+		if (ctx->errcode)
+			return BLOCK_ABORT;
+		/* If we handle a normal dir, we traverse the entire block */
+		buflen = fs->blocksize;
+	} else {
+		buflen = ctx->buflen;
+	}
+
+	if (ext2fs_has_feature_metadata_csum(fs->super))
+		csum_size = sizeof(struct ext2_dir_entry_tail);
+
+	while (offset < buflen - 8) {
+		dirent = (struct ext2_dir_entry *) (ctx->buf + offset);
+		if (ext2fs_get_rec_len(fs, dirent, &rec_len))
+			return BLOCK_ABORT;
+		if (((offset + rec_len) > buflen) ||
+		    (rec_len < 8) ||
+		    ((rec_len % 4) != 0) ||
+		    ((ext2fs_dirent_name_len(dirent)+8) > (int) rec_len)) {
+			ctx->errcode = EXT2_ET_DIR_CORRUPTED;
+			return BLOCK_ABORT;
+		}
+		if (!dirent->inode) {
+			/*
+			 * We just need to check metadata_csum when this
+			 * dir hasn't inline data.  That means that 'buflen'
+			 * should be blocksize.
+			 */
+			if (!inline_data &&
+			    (offset == buflen - csum_size) &&
+			    (dirent->rec_len == csum_size) &&
+			    (dirent->name_len == EXT2_DIR_NAME_LEN_CSUM)) {
+				if (!(ctx->flags & DIRENT_FLAG_INCLUDE_CSUM))
+					goto next;
+				entry = DIRENT_CHECKSUM;
+			} else if (!(ctx->flags & DIRENT_FLAG_INCLUDE_EMPTY))
+				goto next;
+		}
+
+		ret = (ctx->func)(ctx->dir,
+				  (next_real_entry > offset) ?
+				  DIRENT_DELETED_FILE : entry,
+				  dirent, offset,
+				  buflen, ctx->buf,
+				  ctx->priv_data);
+		if (entry < DIRENT_OTHER_FILE)
+			entry++;
+
+		if (ret & DIRENT_CHANGED) {
+			if (ext2fs_get_rec_len(fs, dirent, &rec_len))
+				return BLOCK_ABORT;
+			changed++;
+		}
+		if (ret & DIRENT_ABORT) {
+			do_abort++;
+			break;
+		}
+next:
+ 		if (next_real_entry == offset)
+			next_real_entry += rec_len;
+
+ 		if (ctx->flags & DIRENT_FLAG_INCLUDE_REMOVED) {
+			size = (ext2fs_dirent_name_len(dirent) + 11) & ~3;
+
+			if (rec_len != size)  {
+				unsigned int final_offset;
+
+				final_offset = offset + rec_len;
+				offset += size;
+				while (offset < final_offset &&
+				       !ext2fs_validate_entry(fs, ctx->buf,
+							      offset,
+							      final_offset))
+					offset += 4;
+				continue;
+			}
+		}
+		offset += rec_len;
+	}
+
+	if (changed) {
+		if (!inline_data) {
+			ctx->errcode = ext2fs_write_dir_block4(fs, *blocknr,
+							       ctx->buf,
+							       0, ctx->dir);
+			if (ctx->errcode)
+				return BLOCK_ABORT;
+		} else {
+			/*
+			 * return BLOCK_INLINE_DATA_CHANGED to notify caller
+			 * that inline data has been changed.
+			 */
+			retval = BLOCK_INLINE_DATA_CHANGED;
+		}
+	}
+	if (do_abort)
+		return retval | BLOCK_ABORT;
+	return retval;
+}

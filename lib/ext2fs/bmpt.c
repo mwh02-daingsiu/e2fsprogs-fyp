@@ -67,14 +67,14 @@ void ext2_bmpt_irec2rec(struct ext2_bmptirec *irec, struct ext2_bmptrec *rec)
 	rec->b_flags = ext2fs_cpu_to_le32(irec->b_flags);
 }
 
-static blk_t ext2_bmpt_find_goal_noiblk(ext2_filsys fs, ext2_ino_t ino, int alt)
+blk_t ext2_bmpt_find_goal_noiblk(ext2_filsys fs, ext2_ino_t ino, int which)
 {
 	__u8 log_flex = fs->super->s_log_groups_per_flex;
 	dgrp_t group = ext2fs_group_of_ino(fs, ino);
 	dgrp_t ngroups = fs->group_desc_count;
 	if (log_flex)
 		group = group & ~((1 << (log_flex)) - 1);
-	group = (group + alt) % ngroups;
+	group = (group + which) % ngroups;
 	return (blk_t)ext2fs_group_first_block2(fs, group);
 }
 
