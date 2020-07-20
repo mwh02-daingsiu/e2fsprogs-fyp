@@ -978,6 +978,8 @@ extern errcode_t ext2fs_move_blocks(ext2_filsys fs,
 
 /* bmpt.c */
 extern blk_t ext2_bmpt_find_goal_noiblk(ext2_filsys fs, ext2_ino_t ino, int which);
+extern errcode_t ext2fs_increase_inds(ext2_filsys fs, ext2_ino_t ino,
+				      struct ext2_inode *inode, int add_levels);
 extern errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 				   struct ext2_inode *inode, char *block_buf,
 				   int bmap_flags, blk64_t block, int *ret_flags,

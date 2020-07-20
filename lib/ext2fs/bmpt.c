@@ -142,8 +142,8 @@ done:
 	return retval;
 }
 
-static errcode_t ext2fs_increase_inds(ext2_filsys fs, ext2_ino_t ino,
-				      struct ext2_inode *inode, int new_levels)
+errcode_t ext2fs_increase_inds(ext2_filsys fs, ext2_ino_t ino,
+			       struct ext2_inode *inode, int add_levels)
 {
 	struct ext2_bmpthdr *hdr = (struct ext2_bmpthdr *)&inode->i_block[0];
 	char *buf;
@@ -154,7 +154,7 @@ static errcode_t ext2fs_increase_inds(ext2_filsys fs, ext2_ino_t ino,
 	errcode_t retval;
 
 	nr_levels = ext2fs_le32_to_cpu(hdr->h_levels);
-	ninds = new_levels - nr_levels;
+	ninds = add_levels;
 
 	retval = ext2fs_get_array(ninds, fs->blocksize, &buf);
 	if (retval)
@@ -202,7 +202,7 @@ static errcode_t ext2fs_increase_inds(ext2_filsys fs, ext2_ino_t ino,
 			goto done;
 	}
 
-	hdr->h_levels = new_levels;
+	hdr->h_levels = nr_levels + add_levels;
 	ext2_bmpt_irec2rec(&irecs[0], &hdr->h_root);
 	retval = ext2fs_write_inode(fs, ino, inode);
 
