@@ -148,9 +148,15 @@ errcode_t ext2fs_mkdir(ext2_filsys fs, ext2_ino_t parent, ext2_ino_t inum,
 		/* init "system.data" for new dir */
 		retval = ext2fs_inline_data_init(fs, ino);
 	} else {
-		retval = ext2fs_write_dir_block4(fs, blk, block, 0, ino);
-		if (retval)
-			goto cleanup;
+		if (!ext2fs_has_feature_fyp(fs->super)) {
+			retval = ext2fs_write_dir_block4(fs, blk, block, 0, ino);
+			if (retval)
+				goto cleanup;
+		} else {
+			retval = ext2fs_write_dir_block4_multiple(fs, &dbirec, block, 0, ino);
+			if (retval)
+				goto cleanup;
+		}
 
 		if (ext2fs_has_feature_extents(fs->super)) {
 			retval = ext2fs_extent_open2(fs, ino, &inode, &handle);

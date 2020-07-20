@@ -10,6 +10,8 @@
  */
 
 #include "config.h"
+#include "ext2fs/ext2_bmpt.h"
+#include "ext2fs/ext2_io.h"
 #include <stdio.h>
 #include <string.h>
 #if HAVE_UNISTD_H
@@ -23,7 +25,10 @@
 struct expand_dir_struct {
 	int		done;
 	int		newblocks;
-	blk64_t		goal;
+	union {
+		blk64_t		goal;
+		struct ext2_bmptirec	goalirec;
+	};
 	errcode_t	err;
 	ext2_ino_t	dir;
 };
@@ -84,6 +89,73 @@ static int expand_dir_proc(ext2_filsys	fs,
 		return BLOCK_CHANGED;
 }
 
+static int expand_bmpt_dir_proc(ext2_filsys	fs,
+				int dup_on,
+				struct ext2_bmptirec	*block_irec,
+				e2_blkcnt_t	blockcnt,
+				struct ext2_bmptirec	*ref_block EXT2FS_ATTR((unused)),
+				int		ref_offset EXT2FS_ATTR((unused)),
+				void		*priv_data)
+{
+	struct expand_dir_struct *es = (struct expand_dir_struct *) priv_data;
+	struct ext2_bmptirec	new_blk;
+	char		*block;
+	errcode_t	retval;
+
+	if (!ext2_bmpt_irec_is_null(block_irec)) {
+		if (blockcnt >= 0)
+			es->goalirec = *block_irec;
+		return 0;
+	}
+
+	if (dup_on) {
+		retval = ext2fs_alloc_dup_block(fs, &es->goalirec, 0, &new_blk);
+		if (retval) {
+			es->err = retval;
+			return BLOCK_ABORT;
+		}
+	} else {
+		ext2_bmpt_irec_clear(&new_blk);
+		ext2_bmpt_irec_clear(&es->goalirec);
+		retval = ext2fs_alloc_block(fs, es->goalirec.b_blocks[0], 0, &new_blk.b_blocks[0]);
+		if (retval) {
+			es->err = retval;
+			return BLOCK_ABORT;
+		}
+	}
+	es->newblocks += fs->super->s_dupinode_dup_cnt;
+
+	if (blockcnt > 0) {
+		retval = ext2fs_new_dir_block(fs, 0, 0, &block);
+		if (retval) {
+			es->err = retval;
+			return BLOCK_ABORT;
+		}
+		es->done = 1;
+		retval = ext2fs_write_dir_block4_multiple(fs, &new_blk, block, 0,
+							  es->dir);
+		ext2fs_free_mem(&block);
+	} else {
+		retval = ext2fs_get_mem(fs->blocksize, &block);
+		if (retval)
+			return retval;
+		memset(block, 0, fs->blocksize);
+		retval = io_channel_write_blk64_multiple(fs->io, &new_blk, 1, fs->super->s_dupinode_dup_cnt, block);
+	}
+	if (blockcnt >= 0)
+		es->goalirec = new_blk;
+	if (retval) {
+		es->err = retval;
+		return BLOCK_ABORT;
+	}
+	*block_irec = new_blk;
+
+	if (es->done)
+		return (BLOCK_CHANGED | BLOCK_ABORT);
+	else
+		return BLOCK_CHANGED;
+}
+
 errcode_t ext2fs_expand_dir(ext2_filsys fs, ext2_ino_t dir)
 {
 	errcode_t	retval;
@@ -108,12 +180,20 @@ errcode_t ext2fs_expand_dir(ext2_filsys fs, ext2_ino_t dir)
 
 	es.done = 0;
 	es.err = 0;
-	es.goal = ext2fs_find_inode_goal(fs, dir, &inode, 0);
+	if (ext2fs_has_feature_fyp(fs->super))
+		ext2_bmpt_irec_clear(&es.goalirec);
+	else
+		es.goal = ext2fs_find_inode_goal(fs, dir, &inode, 0);
 	es.newblocks = 0;
 	es.dir = dir;
 
-	retval = ext2fs_block_iterate3(fs, dir, BLOCK_FLAG_APPEND,
-				       0, expand_dir_proc, &es);
+	if (ext2fs_has_feature_fyp(fs->super)) {
+		retval = ext2fs_bmpt_block_iterate(fs, dir, BLOCK_FLAG_APPEND,
+					       0, expand_bmpt_dir_proc, &es);
+	} else {
+		retval = ext2fs_block_iterate3(fs, dir, BLOCK_FLAG_APPEND,
+					       0, expand_dir_proc, &es);
+	}
 	if (retval == EXT2_ET_INLINE_DATA_CANT_ITERATE)
 		return ext2fs_inline_data_expand(fs, dir);
 

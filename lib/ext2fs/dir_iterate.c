@@ -123,8 +123,13 @@ errcode_t ext2fs_dir_iterate2(ext2_filsys fs,
 	ctx.func = func;
 	ctx.priv_data = priv_data;
 	ctx.errcode = 0;
-	retval = ext2fs_block_iterate3(fs, dir, BLOCK_FLAG_READ_ONLY, 0,
-				       ext2fs_process_dir_block, &ctx);
+	if (ext2fs_has_feature_fyp(fs->super)) {
+		retval = ext2fs_bmpt_block_iterate(fs, dir, BLOCK_FLAG_READ_ONLY, 0,
+						   ext2fs_bmpt_process_dir_block, &ctx);
+	} else {
+		retval = ext2fs_block_iterate3(fs, dir, BLOCK_FLAG_READ_ONLY, 0,
+					       ext2fs_process_dir_block, &ctx);
+	}
 	if (!block_buf)
 		ext2fs_free_mem(&ctx.buf);
 	if (retval == EXT2_ET_INLINE_DATA_CANT_ITERATE) {
@@ -311,12 +316,12 @@ next:
 }
 
 int ext2fs_bmpt_process_dir_block(ext2_filsys fs,
-			     int dup_on,
-			     blk64_t	*blocknr,
-			     e2_blkcnt_t blockcnt,
-			     blk64_t	ref_block EXT2FS_ATTR((unused)),
-			     int	ref_offset EXT2FS_ATTR((unused)),
-			     void	*priv_data)
+				  int dup_on EXT2FS_ATTR((unused)),  /* Directories are dupped */
+				  struct ext2_bmptirec	*block_irec,
+				  e2_blkcnt_t blockcnt,
+				  struct ext2_bmptirec	*ref_block EXT2FS_ATTR((unused)),
+				  int	ref_offset EXT2FS_ATTR((unused)),
+				  void	*priv_data)
 {
 	struct dir_context *ctx = (struct dir_context *) priv_data;
 	unsigned int	offset = 0;
@@ -339,7 +344,7 @@ int ext2fs_bmpt_process_dir_block(ext2_filsys fs,
 	/* If a dir has inline data, we don't need to read block */
 	inline_data = !!(ctx->flags & DIRENT_FLAG_INCLUDE_INLINE_DATA);
 	if (!inline_data) {
-		ctx->errcode = ext2fs_read_dir_block4(fs, *blocknr, ctx->buf, 0,
+		ctx->errcode = ext2fs_read_dir_block4(fs, block_irec->b_blocks[0], ctx->buf, 0,
 						      ctx->dir);
 		if (ctx->errcode)
 			return BLOCK_ABORT;
@@ -423,7 +428,7 @@ next:
 
 	if (changed) {
 		if (!inline_data) {
-			ctx->errcode = ext2fs_write_dir_block4(fs, *blocknr,
+			ctx->errcode = ext2fs_write_dir_block4_multiple(fs, block_irec,
 							       ctx->buf,
 							       0, ctx->dir);
 			if (ctx->errcode)

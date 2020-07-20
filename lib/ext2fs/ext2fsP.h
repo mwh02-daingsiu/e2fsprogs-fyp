@@ -100,6 +100,13 @@ extern int ext2fs_process_dir_block(ext2_filsys  	fs,
 				    blk64_t		ref_block,
 				    int			ref_offset,
 				    void		*priv_data);
+extern int ext2fs_bmpt_process_dir_block(ext2_filsys fs,
+					 int dup_on,  /* Directories are dupped */
+					 struct ext2_bmptirec	*block_irec,
+					 e2_blkcnt_t blockcnt,
+					 struct ext2_bmptirec	*ref_block,
+					 int	ref_offset,
+					 void	*priv_data);
 
 extern errcode_t ext2fs_inline_data_ea_remove(ext2_filsys fs, ext2_ino_t ino);
 extern errcode_t ext2fs_inline_data_expand(ext2_filsys fs, ext2_ino_t ino);

@@ -1163,6 +1163,9 @@ extern errcode_t ext2fs_write_dir_block3(ext2_filsys fs, blk64_t block,
 					 void *buf, int flags);
 extern errcode_t ext2fs_write_dir_block4(ext2_filsys fs, blk64_t block,
 					 void *buf, int flags, ext2_ino_t ino);
+extern errcode_t ext2fs_write_dir_block4_multiple(ext2_filsys fs, struct ext2_bmptirec *block_irec,
+						  void *inbuf, int flags EXT2FS_ATTR((unused)),
+						  ext2_ino_t ino);
 
 /* dirhash.c */
 extern errcode_t ext2fs_dirhash(int version, const char *name, int len,

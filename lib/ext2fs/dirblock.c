@@ -93,6 +93,43 @@ out:
 	return retval;
 }
 
+errcode_t ext2fs_write_dir_block4_multiple(ext2_filsys fs, struct ext2_bmptirec *block_irec,
+					   void *inbuf, int flags EXT2FS_ATTR((unused)),
+					   ext2_ino_t ino)
+{
+	errcode_t	retval;
+	char		*buf = inbuf;
+	blk64_t		blks[EXT2_BMPT_N_DUPS];
+	int		j, n = 0;
+
+	for (j = 0; j < fs->super->s_dupinode_dup_cnt; j++) {
+		if (block_irec->b_blocks[j])
+			blks[n++] = block_irec->b_blocks[j];
+	}
+
+#ifdef WORDS_BIGENDIAN
+	retval = ext2fs_get_mem(fs->blocksize, &buf);
+	if (retval)
+		return retval;
+	memcpy(buf, inbuf, fs->blocksize);
+	retval = ext2fs_dirent_swab_out(fs, buf, flags);
+	if (retval)
+		return retval;
+#endif
+	retval = ext2fs_dir_block_csum_set(fs, ino,
+					   (struct ext2_dir_entry *)buf);
+	if (retval)
+		goto out;
+
+	retval = io_channel_write_blk64_multiple(fs->io, blks, 1, n, buf);
+
+out:
+#ifdef WORDS_BIGENDIAN
+	ext2fs_free_mem(&buf);
+#endif
+	return retval;
+}
+
 errcode_t ext2fs_write_dir_block3(ext2_filsys fs, blk64_t block,
 				  void *inbuf, int flags EXT2FS_ATTR((unused)))
 {
