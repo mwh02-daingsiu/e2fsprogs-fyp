@@ -600,7 +600,7 @@ static int bmpt_block_recursive_visit(int level, struct ext2_bmptrec *ind_irec,
 	if (!(ctx->flags &
 	      (BLOCK_FLAG_DEPTH_TRAVERSE | BLOCK_FLAG_DATA_ONLY))) {
 		ext2_bmpt_rec2irec(ind_irec, &blk64);
-		ret = (*ctx->func)(ctx->fs, ctx->dup_on, &blk64, -level, ref_block,
+		ret = (*ctx->func)(ctx->fs, ctx->dup_on, &blk64, -level-1, ref_block,
 				   ref_offset, ctx->priv_data);
 		ext2_bmpt_irec2rec(&blk64, ind_irec);
 	}
@@ -636,6 +636,7 @@ static int bmpt_block_recursive_visit(int level, struct ext2_bmptrec *ind_irec,
 				offset += sizeof(struct ext2_bmptrec);
 			}
 		} else {
+			ext2_bmpt_rec2irec(ind_irec, &blk64);
 			for (i = 0; i < limit; i++, block_nr++) {
 				if (ext2_bmpt_rec_is_null(block_nr)) {
 					ctx->bcount += limit * limit;
@@ -657,13 +658,13 @@ static int bmpt_block_recursive_visit(int level, struct ext2_bmptrec *ind_irec,
 	} else {
 		if (ctx->flags & BLOCK_FLAG_APPEND) {
 			for (i = 0; i < limit; i++, ctx->bcount++, block_nr++) {
-				ext2_bmpt_rec2irec(ind_irec, &blk64);
+				ext2_bmpt_rec2irec(block_nr, &blk64);
 				flags = (*ctx->func)(ctx->fs, ctx->dup_on,
 						     &blk64,
 						     ctx->bcount, ref_block,
 						     ref_offset,
 						     ctx->priv_data);
-				ext2_bmpt_irec2rec(&blk64, ind_irec);
+				ext2_bmpt_irec2rec(&blk64, block_nr);
 				changed |= flags;
 				if (flags & BLOCK_ABORT) {
 					ret |= BLOCK_ABORT;
@@ -675,12 +676,12 @@ static int bmpt_block_recursive_visit(int level, struct ext2_bmptrec *ind_irec,
 			for (i = 0; i < limit; i++, ctx->bcount++, block_nr++) {
 				if (ext2_bmpt_rec_is_null(block_nr))
 					goto skip_sparse;
-				ext2_bmpt_rec2irec(ind_irec, &blk64);
+				ext2_bmpt_rec2irec(block_nr, &blk64);
 				flags = (*ctx->func)(ctx->fs, ctx->dup_on, &blk64,
 						     ctx->bcount, ref_block,
 						     ref_offset,
 						     ctx->priv_data);
-				ext2_bmpt_irec2rec(&blk64, ind_irec);
+				ext2_bmpt_irec2rec(&blk64, block_nr);
 				changed |= flags;
 				if (flags & BLOCK_ABORT) {
 					ret |= BLOCK_ABORT;
@@ -708,7 +709,7 @@ static int bmpt_block_recursive_visit(int level, struct ext2_bmptrec *ind_irec,
 	if ((ctx->flags & BLOCK_FLAG_DEPTH_TRAVERSE) &&
 	    !(ctx->flags & BLOCK_FLAG_DATA_ONLY) && !(ret & BLOCK_ABORT)) {
 		ext2_bmpt_rec2irec(ind_irec, &blk64);
-		ret = (*ctx->func)(ctx->fs, ctx->dup_on, &blk64, -level, ref_block,
+		ret = (*ctx->func)(ctx->fs, ctx->dup_on, &blk64, -level-1, ref_block,
 				   ref_offset, ctx->priv_data);
 		ext2_bmpt_irec2rec(&blk64, ind_irec);
 	}
@@ -758,7 +759,6 @@ errcode_t ext2fs_bmpt_block_iterate(
 
 	limit = fs->blocksize >> EXT2_BMPTREC_SZ_BITS;
 	hdr = (struct ext2_bmpthdr *)&inode.i_block[0];
-	nr_levels = ext2fs_le32_to_cpu(hdr->h_levels);
 
 	ctx.fs = fs;
 	ctx.dup_on = ext2fs_le32_to_cpu(hdr->h_flags) & EXT2_BMPT_HDR_FLAGS_DUP;
@@ -776,6 +776,7 @@ errcode_t ext2fs_bmpt_block_iterate(
 	/*
 	 * Iterate over normal data blocks
 	 */
+	nr_levels = ext2fs_le32_to_cpu(hdr->h_levels);
 	if (!nr_levels) {
 		if (!ext2_bmpt_rec_is_null(&hdr->h_root) || (flags & BLOCK_FLAG_APPEND)) {
 			ext2_bmpt_rec2irec(&hdr->h_root, &blk64);
@@ -785,6 +786,7 @@ errcode_t ext2fs_bmpt_block_iterate(
 			if (ret & BLOCK_ABORT)
 				goto abort_exit;
 		}
+		ctx.bcount++;
 		check_for_ro_violation_goto(&ctx, ret, abort_exit);
 	} else {
 		ret |= bmpt_block_recursive_visit(nr_levels - 1, &hdr->h_root, block_buf, 0, 0, &ctx);
@@ -792,6 +794,24 @@ errcode_t ext2fs_bmpt_block_iterate(
 			goto abort_exit;
 		if (ext2_bmpt_rec_is_null(&hdr->h_root))
 			hdr->h_levels = 0;
+	}
+	if (flags & BLOCK_FLAG_APPEND) {
+iterate_again:
+		ext2_bmpt_irec_clear(&blk64);
+		ret |= (*ctx.func)(fs, ctx.dup_on, &blk64, ctx.bcount, 0, i,
+				   priv_data);
+		if (ret & BLOCK_CHANGED) {
+			int ret_flags;
+			ctx.errcode = ext2fs_bmpt_bmap2(fs, ino, &inode, block_buf, BMAP_SET, ctx.bcount,
+							&ret_flags, &blk64);
+			if (ctx.errcode) {
+				ret |= BLOCK_ERROR;
+				goto abort_exit;
+			}
+			ctx.bcount++;
+			if (!(ret & BLOCK_ABORT))
+				goto iterate_again;
+		}	
 	}
 
 abort_exit:
