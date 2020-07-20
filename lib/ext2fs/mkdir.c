@@ -204,12 +204,11 @@ errcode_t ext2fs_mkdir(ext2_filsys fs, ext2_ino_t parent, ext2_ino_t inum,
 	/*
 	 * Update accounting....
 	 */
-	if (!inline_data)
-		ext2fs_block_alloc_stats2(fs, blk, +1);
-	if (!ext2fs_has_feature_fyp(fs->super))
-		ext2fs_inode_alloc_stats2(fs, ino, +1, 1);
-	else
-		ext2fs_inode_alloc_stats2(fs, ino, +fs->super->s_dupinode_dup_cnt, 1);
+	if (!inline_data) {
+		if (!ext2fs_has_feature_fyp(fs->super))
+			ext2fs_block_alloc_stats2(fs, blk, +1);
+	}
+	ext2fs_inode_alloc_stats2(fs, ino, +1, 1);
 
 cleanup:
 	if (block)
