@@ -10,8 +10,6 @@
  */
 
 #include "config.h"
-#include "ext2fs/ext2_bmpt.h"
-#include "ext2fs/ext2_io.h"
 #include <stdio.h>
 #include <string.h>
 #if HAVE_UNISTD_H
@@ -136,11 +134,21 @@ static int expand_bmpt_dir_proc(ext2_filsys	fs,
 							  es->dir);
 		ext2fs_free_mem(&block);
 	} else {
+		blk64_t		blks[EXT2_BMPT_N_DUPS];
+		int		j, n = 0;
+
+		for (j = 0; j < fs->super->s_dupinode_dup_cnt; j++) {
+			if (new_blk.b_blocks[j])
+				blks[n++] = new_blk.b_blocks[j];
+		}
 		retval = ext2fs_get_mem(fs->blocksize, &block);
-		if (retval)
-			return retval;
+		if (retval) {
+			es->err = retval;
+			return BLOCK_ABORT;
+		}
 		memset(block, 0, fs->blocksize);
-		retval = io_channel_write_blk64_multiple(fs->io, &new_blk, 1, fs->super->s_dupinode_dup_cnt, block);
+		retval = io_channel_write_blk64_multiple(fs->io, blks, 1, n, block);
+		ext2fs_free_mem(&block);
 	}
 	if (blockcnt >= 0)
 		es->goalirec = new_blk;
