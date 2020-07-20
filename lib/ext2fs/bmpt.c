@@ -51,21 +51,7 @@ static inline blk_t ext2_bmpt_boundary(ext2_filsys fs, int level, blk_t iblk)
 	return iblk | mask;
 }
 
-static inline int ext2_bmpt_rec_is_null(struct ext2_bmptrec *rec)
-{
-	return !rec->b_blocks[0];
-}
-
-static inline void ext2_bmpt_rec_clear(struct ext2_bmptrec *rec)
-{
-	int i;
-	for (i = 0; i < EXT2_BMPT_N_DUPS; i++)
-		rec->b_blocks[i] = 0;
-	rec->b_flags = 0;
-}
-
-static inline void ext2_bmpt_rec2irec(struct ext2_bmptrec *rec,
-				      struct ext2_bmptirec *irec)
+void ext2_bmpt_rec2irec(struct ext2_bmptrec *rec, struct ext2_bmptirec *irec)
 {
 	int i = 0;
 	for (i = 0; i < EXT2_BMPT_N_DUPS; i++)
@@ -73,8 +59,7 @@ static inline void ext2_bmpt_rec2irec(struct ext2_bmptrec *rec,
 	irec->b_flags = ext2fs_le32_to_cpu(rec->b_flags);
 }
 
-static inline void ext2_bmpt_irec2rec(struct ext2_bmptirec *irec,
-				      struct ext2_bmptrec *rec)
+void ext2_bmpt_irec2rec(struct ext2_bmptirec *irec, struct ext2_bmptrec *rec)
 {
 	int i = 0;
 	for (i = 0; i < EXT2_BMPT_N_DUPS; i++)
@@ -600,7 +585,8 @@ errcode_t ext2fs_punch_bmpt(ext2_filsys fs, ext2_ino_t ino,
 		count = end - start + 1;
 
 	if (!block_buf) {
-		retval = ext2fs_get_array(EXT2_BMPT_MAXLEVELS, fs->blocksize, &buf);
+		retval = ext2fs_get_array(EXT2_BMPT_MAXLEVELS, fs->blocksize,
+					  &buf);
 		if (retval)
 			return retval;
 		block_buf = buf;

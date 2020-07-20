@@ -37,6 +37,23 @@ struct block_context {
 	void	*priv_data;
 };
 
+struct bmpt_block_context {
+	ext2_filsys	fs;
+	int dup_on;
+	int (*func)(ext2_filsys	fs,
+		    int dup_on,
+		    struct ext2_bmptirec	*blocknr,
+		    e2_blkcnt_t	bcount,
+		    struct ext2_bmptirec	*ref_blk,
+		    int		ref_offset,
+		    void	*priv_data);
+	e2_blkcnt_t	bcount;
+	int		bsize;
+	int		flags;
+	errcode_t	errcode;
+	void	*priv_data;
+};
+
 #define check_for_ro_violation_return(ctx, ret)				\
 	do {								\
 		if (((ctx)->flags & BLOCK_FLAG_READ_ONLY) &&		\
@@ -563,6 +580,230 @@ abort_exit:
 errout:
 	if (!block_buf)
 		ext2fs_free_mem(&ctx.ind_buf);
+
+	return (ret & BLOCK_ERROR) ? ctx.errcode : 0;
+}
+
+// Modified from block_iterate_tind to deal with ext2_bmptrec
+static int bmpt_block_recursive_visit(int level, struct ext2_bmptrec *ind_irec,
+				      char *block_buf,
+				      struct ext2_bmptirec *ref_block,
+				      int ref_offset,
+				      struct bmpt_block_context *ctx)
+{
+	int ret = 0, changed = 0;
+	int i, flags, limit, offset;
+	struct ext2_bmptrec *block_nr;
+	struct ext2_bmptirec blk64;
+
+	limit = ctx->fs->blocksize >> EXT2_BMPTREC_SZ_BITS;
+	if (!(ctx->flags &
+	      (BLOCK_FLAG_DEPTH_TRAVERSE | BLOCK_FLAG_DATA_ONLY))) {
+		ext2_bmpt_rec2irec(ind_irec, &blk64);
+		ret = (*ctx->func)(ctx->fs, ctx->dup_on, &blk64, -level, ref_block,
+				   ref_offset, ctx->priv_data);
+		ext2_bmpt_irec2rec(&blk64, ind_irec);
+	}
+	check_for_ro_violation_return(ctx, ret);
+	if (ext2_bmpt_rec_is_null(ind_irec) || (ret & BLOCK_ABORT)) {
+		ctx->bcount += ((unsigned long long)limit) * limit * limit;
+		return ret;
+	}
+	ctx->errcode = io_channel_read_blk64(ctx->fs->io, ind_irec->b_blocks[0],
+					     1, block_buf);
+	if (ctx->errcode) {
+		ret |= BLOCK_ERROR;
+		return ret;
+	}
+
+	block_nr = (struct ext2_bmptrec *)block_buf;
+	offset = 0;
+
+	if (level) {
+		if (ctx->flags & BLOCK_FLAG_APPEND) {
+			ext2_bmpt_rec2irec(ind_irec, &blk64);
+			for (i = 0; i < limit; i++, block_nr++) {
+				flags = bmpt_block_recursive_visit(
+					level - 1, block_nr,
+					block_buf + ctx->fs->blocksize, &blk64,
+					offset, ctx);
+				changed |= flags;
+				if (flags & (BLOCK_ABORT | BLOCK_ERROR)) {
+					ret |= flags &
+					       (BLOCK_ABORT | BLOCK_ERROR);
+					break;
+				}
+				offset += sizeof(struct ext2_bmptrec);
+			}
+		} else {
+			for (i = 0; i < limit; i++, block_nr++) {
+				if (ext2_bmpt_rec_is_null(block_nr)) {
+					ctx->bcount += limit * limit;
+					continue;
+				}
+				flags = bmpt_block_recursive_visit(
+					level - 1, block_nr,
+					block_buf + ctx->fs->blocksize, &blk64,
+					offset, ctx);
+				changed |= flags;
+				if (flags & (BLOCK_ABORT | BLOCK_ERROR)) {
+					ret |= flags &
+					       (BLOCK_ABORT | BLOCK_ERROR);
+					break;
+				}
+				offset += sizeof(struct ext2_bmptrec);
+			}
+		}
+	} else {
+		if (ctx->flags & BLOCK_FLAG_APPEND) {
+			for (i = 0; i < limit; i++, ctx->bcount++, block_nr++) {
+				ext2_bmpt_rec2irec(ind_irec, &blk64);
+				flags = (*ctx->func)(ctx->fs, ctx->dup_on,
+						     &blk64,
+						     ctx->bcount, ref_block,
+						     ref_offset,
+						     ctx->priv_data);
+				ext2_bmpt_irec2rec(&blk64, ind_irec);
+				changed |= flags;
+				if (flags & BLOCK_ABORT) {
+					ret |= BLOCK_ABORT;
+					break;
+				}
+				offset += sizeof(struct ext2_bmptrec);
+			}
+		} else {
+			for (i = 0; i < limit; i++, ctx->bcount++, block_nr++) {
+				if (ext2_bmpt_rec_is_null(block_nr))
+					goto skip_sparse;
+				ext2_bmpt_rec2irec(ind_irec, &blk64);
+				flags = (*ctx->func)(ctx->fs, ctx->dup_on, &blk64,
+						     ctx->bcount, ref_block,
+						     ref_offset,
+						     ctx->priv_data);
+				ext2_bmpt_irec2rec(&blk64, ind_irec);
+				changed |= flags;
+				if (flags & BLOCK_ABORT) {
+					ret |= BLOCK_ABORT;
+					break;
+				}
+			skip_sparse:
+				offset += sizeof(struct ext2_bmptrec);
+			}
+		}
+	}
+
+	check_for_ro_violation_return(ctx, changed);
+	if (changed & BLOCK_CHANGED) {
+		blk64_t blks[EXT2_BMPT_N_DUPS];
+		int j;
+		ext2_bmpt_rec2irec(ind_irec, &blk64);
+		for (j = 0; j < EXT2_BMPT_N_DUPS; j++)
+			blks[j] = blk64.b_blocks[j];
+
+		ctx->errcode = io_channel_write_blk64_multiple(
+			ctx->fs->io, blks, 1, EXT2_BMPT_N_DUPS, block_buf);
+		if (ctx->errcode)
+			ret |= BLOCK_ERROR | BLOCK_ABORT;
+	}
+	if ((ctx->flags & BLOCK_FLAG_DEPTH_TRAVERSE) &&
+	    !(ctx->flags & BLOCK_FLAG_DATA_ONLY) && !(ret & BLOCK_ABORT)) {
+		ext2_bmpt_rec2irec(ind_irec, &blk64);
+		ret = (*ctx->func)(ctx->fs, ctx->dup_on, &blk64, -level, ref_block,
+				   ref_offset, ctx->priv_data);
+		ext2_bmpt_irec2rec(&blk64, ind_irec);
+	}
+	check_for_ro_violation_return(ctx, ret);
+	return ret;
+}
+
+errcode_t ext2fs_bmpt_block_iterate(
+	ext2_filsys fs, ext2_ino_t ino, int flags, char *block_buf,
+	int (*func)(ext2_filsys fs, int dup_on, struct ext2_bmptirec *blocknr,
+		    e2_blkcnt_t bcount, struct ext2_bmptirec *ref_blk,
+		    int ref_offset, void *priv_data),
+	void *priv_data)
+{
+	int	i;
+	int	r, ret = 0;
+	struct ext2_inode inode;
+	errcode_t	retval;
+	struct bmpt_block_context ctx;
+	char *buf = NULL;
+	int	limit;
+	int	nr_levels;
+	struct ext2_bmpthdr *hdr;
+	struct ext2_bmptirec blk64;
+
+	EXT2_CHECK_MAGIC(fs, EXT2_ET_MAGIC_EXT2FS_FILSYS);
+
+	ctx.errcode = ext2fs_read_inode(fs, ino, &inode);
+	if (ctx.errcode)
+		return ctx.errcode;
+
+	/*
+	 * An inode with inline data has no blocks over which to
+	 * iterate, so return an error code indicating this fact.
+	 */
+	if (inode.i_flags & EXT4_INLINE_DATA_FL)
+		return EXT2_ET_INLINE_DATA_CANT_ITERATE;
+
+	/*
+	 * Check to see if we need to limit large files
+	 */
+	if (flags & BLOCK_FLAG_NO_LARGE) {
+		if (!LINUX_S_ISDIR(inode.i_mode) &&
+		    (inode.i_size_high != 0))
+			return EXT2_ET_FILE_TOO_BIG;
+	}
+
+	limit = fs->blocksize >> EXT2_BMPTREC_SZ_BITS;
+	hdr = (struct ext2_bmpthdr *)&inode.i_block[0];
+	nr_levels = ext2fs_le32_to_cpu(hdr->h_levels);
+
+	ctx.fs = fs;
+	ctx.dup_on = ext2fs_le32_to_cpu(hdr->h_flags) & EXT2_BMPT_HDR_FLAGS_DUP;
+	ctx.func = func;
+	ctx.priv_data = priv_data;
+	ctx.flags = flags;
+	ctx.bcount = 0;
+	if (!block_buf) {
+		retval = ext2fs_get_array(EXT2_BMPT_MAXLEVELS, fs->blocksize, &buf);
+		if (retval)
+			return retval;
+		block_buf = buf;
+	}
+
+	/*
+	 * Iterate over normal data blocks
+	 */
+	if (!nr_levels) {
+		if (!ext2_bmpt_rec_is_null(&hdr->h_root) || (flags & BLOCK_FLAG_APPEND)) {
+			ext2_bmpt_rec2irec(&hdr->h_root, &blk64);
+			ret |= (*ctx.func)(fs, ctx.dup_on, &blk64, ctx.bcount, 0, i, 
+					priv_data);
+			ext2_bmpt_irec2rec(&blk64, &hdr->h_root);
+			if (ret & BLOCK_ABORT)
+				goto abort_exit;
+		}
+		check_for_ro_violation_goto(&ctx, ret, abort_exit);
+	} else {
+		ret |= bmpt_block_recursive_visit(nr_levels - 1, &hdr->h_root, block_buf, 0, 0, &ctx);
+		if (ret & BLOCK_ABORT)
+			goto abort_exit;
+		if (ext2_bmpt_rec_is_null(&hdr->h_root))
+			hdr->h_levels = 0;
+	}
+
+abort_exit:
+	if (ret & BLOCK_CHANGED) {
+		retval = ext2fs_write_inode(fs, ino, &inode);
+		if (retval) {
+			ret |= BLOCK_ERROR;
+			ctx.errcode = retval;
+		}
+	}
+errout:
+	ext2fs_free_mem(&buf);
 
 	return (ret & BLOCK_ERROR) ? ctx.errcode : 0;
 }
