@@ -265,6 +265,10 @@ errcode_t ext2fs_initialize(const char *name, int flags,
 		return 0;
 	}
 
+	if (ext2fs_has_feature_fyp(super)) {
+		set_field(s_dupinode_dup_cnt, 1);
+	}
+
 retry:
 	fs->group_desc_count = (dgrp_t) ext2fs_div64_ceil(
 		ext2fs_blocks_count(super) - super->s_first_data_block,

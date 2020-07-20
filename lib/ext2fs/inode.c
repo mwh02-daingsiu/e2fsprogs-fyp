@@ -928,7 +928,7 @@ errcode_t ext2fs_write_inode_full(ext2_filsys fs, ext2_ino_t ino,
 	if (ext2fs_has_feature_fyp(fs->super)) {
 		int j;
 		for (j = 1; j < EXT2_FYP_ITB_N_DUPS; j++)
-			block_nr[j] = ext2fs_dup_inode_table_loc(fs, group, j);
+			block_nr[j] = ext2fs_dup_inode_table_loc(fs, group, j) + block;
 	}
 
 	offset &= (EXT2_BLOCK_SIZE(fs->super) - 1);
