@@ -313,6 +313,7 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 	int i = 0, off;
 	struct ext2_bmptirec *ind_irecs = NULL;
 	char *ind_block_buf = NULL;
+	blk_t blocks_alloc = 0;
 	int ind_new = 0;
 	int ind_offs = -1;
 
@@ -341,6 +342,8 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 						      min_levels - nr_levels);
 			if (retval)
 				goto done;
+			blocks_alloc += min_levels - nr_levels;
+			nr_levels = min_levels;
 		}
 	}
 
@@ -380,6 +383,7 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 			ind_parent = irec;
 			ind_offs = off;
 			irec = ind_irecs[0];
+			blocks_alloc += ind_new;
 		} else {
 			ext2_bmpt_rec2irec(
 				&((struct ext2_bmptrec *)block_buf)[off],
@@ -417,12 +421,14 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 				if (retval)
 					goto done;
 			}
+			blocks_alloc += fs->super->s_dupinode_dup_cnt;
 		} else {
 			goal[0] = ext2_bmpt_find_goal_noiblk(fs, ino, 0);
 			retval = ext2fs_alloc_block(fs, goal[0], block_buf,
 						    &dbirec.b_blocks[0]);
 			if (retval)
 				goto done;
+			blocks_alloc++;
 		}
 
 		ext2_bmpt_irec2rec(&dbirec,
@@ -456,6 +462,8 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 	}
 
 	ext2_bmpt_rec2irec(&((struct ext2_bmptrec *)block_buf)[off], phys_blk);
+	if (can_insert)
+		ext2fs_iblk_add_blocks(fs, inode, blocks_alloc);
 
 done:
 	if (retval) {
