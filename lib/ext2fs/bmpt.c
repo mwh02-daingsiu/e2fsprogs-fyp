@@ -296,7 +296,7 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 	int can_insert = BMAP_SET | BMAP_ALLOC;
 	int i = 0, off;
 	struct ext2_bmptirec *ind_irecs = NULL;
-	char *ind_block_buf = NULL;
+	char *ind_blocks[EXT2_BMPT_MAXLEVELS], *buf = NULL;
 	blk_t blocks_alloc = 0;
 	int ind_new = 0;
 	int ind_offs = -1;
@@ -336,18 +336,25 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 		return ext2fs_bmpt_linear(fs, ino, inode, block_buf, bmap_flags,
 					  block, ret_flags, phys_blk);
 
+	retval = ext2fs_get_array(nr_levels, fs->blocksize, &buf);
+	if (retval)
+		goto done;
+	ind_blocks[0] = buf;
+	for (i = 1; i < nr_levels; i++)
+		ind_blocks[i] = ind_blocks[i - 1] + fs->blocksize;
+
 	i = nr_levels;
 	ext2_bmpt_rec2irec(&hdr->h_root, &irec);
 	while (i--) {
 		retval = io_channel_read_blk64(fs->io, irec.b_blocks[0], 1,
-					       block_buf);
+					       ind_blocks[i]);
 		if (retval)
 			goto done;
 
 		this_irec = irec;
 		off = ext2_bmpt_offsets(fs, i, block);
 		if (ext2_bmpt_rec_is_null(
-			    &((struct ext2_bmptrec *)block_buf)[off]) &&
+			    &((struct ext2_bmptrec *)ind_blocks[i])[off]) &&
 		    i) {
 			blk64_t blks[EXT2_BMPT_N_DUPS];
 
@@ -355,9 +362,6 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 				goto done;
 			retval = ext2fs_get_array(
 				i, sizeof(struct ext2_bmptirec), &ind_irecs);
-			if (retval)
-				goto done;
-			retval = ext2fs_get_mem(fs->blocksize, &ind_block_buf);
 			if (retval)
 				goto done;
 			memset(ind_irecs, 0, i * sizeof(struct ext2_bmptirec));
@@ -372,7 +376,7 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 			blocks_alloc += ind_new;
 		} else {
 			ext2_bmpt_rec2irec(
-				&((struct ext2_bmptrec *)block_buf)[off],
+				&((struct ext2_bmptrec *)ind_blocks[i])[off],
 				&irec);
 		}
 	}
@@ -381,12 +385,12 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 		blk64_t blks[EXT2_BMPT_N_DUPS];
 		int j;
 
-		ext2_bmpt_irec2rec(phys_blk,
-				   &((struct ext2_bmptrec *)block_buf)[off]);
+		ext2_bmpt_irec2rec(
+			phys_blk, &((struct ext2_bmptrec *)ind_blocks[0])[off]);
 		for (j = 0; j < EXT2_BMPT_N_DUPS; j++)
 			blks[j] = this_irec.b_blocks[j];
 		retval = io_channel_write_blk64_multiple(
-			fs->io, blks, 1, EXT2_BMPT_N_DUPS, block_buf);
+			fs->io, blks, 1, EXT2_BMPT_N_DUPS, ind_blocks[0]);
 		if (retval)
 			goto done;
 	} else if (ext2_bmpt_irec_is_null(&irec) && can_insert) {
@@ -417,13 +421,13 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 			blocks_alloc++;
 		}
 
-		ext2_bmpt_irec2rec(&dbirec,
-				   &((struct ext2_bmptrec *)block_buf)[off]);
+		ext2_bmpt_irec2rec(
+			&dbirec, &((struct ext2_bmptrec *)ind_blocks[0])[off]);
 
 		for (j = 0; j < EXT2_BMPT_N_DUPS; j++)
 			blks[j] = this_irec.b_blocks[j];
 		retval = io_channel_write_blk64_multiple(
-			fs->io, blks, 1, EXT2_BMPT_N_DUPS, block_buf);
+			fs->io, blks, 1, EXT2_BMPT_N_DUPS, ind_blocks[0]);
 		if (retval)
 			goto done;
 	}
@@ -438,16 +442,17 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 
 		ext2_bmpt_irec2rec(
 			&ind_irecs[0],
-			&((struct ext2_bmptrec *)ind_block_buf)[ind_offs]);
+			&((struct ext2_bmptrec *)ind_blocks[ind_new])[ind_offs]);
 		for (j = 0; j < EXT2_BMPT_N_DUPS; j++)
 			blks[j] = ind_parent.b_blocks[j];
 		retval = io_channel_write_blk64_multiple(
-			fs->io, blks, 1, EXT2_BMPT_N_DUPS, ind_block_buf);
+			fs->io, blks, 1, EXT2_BMPT_N_DUPS, ind_blocks[ind_new]);
 		if (retval)
 			goto done;
 	}
 
-	ext2_bmpt_rec2irec(&((struct ext2_bmptrec *)block_buf)[off], phys_blk);
+	ext2_bmpt_rec2irec(&((struct ext2_bmptrec *)ind_blocks[0])[off],
+			   phys_blk);
 	if (can_insert)
 		ext2fs_iblk_add_blocks(fs, inode, blocks_alloc);
 
@@ -470,7 +475,8 @@ done:
 					fs, dbirec.b_blocks[j], -1);
 		}
 	}
-	ext2fs_free_mem(&ind_block_buf);
+	ext2fs_free_mem(&buf);
+	ext2fs_free_mem(&ind_blocks);
 	ext2fs_free_mem(&ind_irecs);
 	return retval;
 }
