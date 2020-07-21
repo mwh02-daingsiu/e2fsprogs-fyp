@@ -484,7 +484,6 @@ done:
 		}
 	}
 	ext2fs_free_mem(&buf);
-	ext2fs_free_mem(&ind_blocks);
 	ext2fs_free_mem(&ind_irecs);
 	return retval;
 }
