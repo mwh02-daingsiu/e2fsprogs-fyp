@@ -187,7 +187,6 @@ errcode_t ext2fs_increase_inds(ext2_filsys fs, ext2_ino_t ino,
 		for (j = 0; j < EXT2_BMPT_N_DUPS; j++)
 			blks[j] = irecs[i].b_blocks[j];
 
-		memset(block_buf[i], 0, fs->blocksize);
 		if (i != ninds - 1) {
 			ext2_bmpt_irec2rec(
 				&irecs[i + 1],
@@ -292,7 +291,7 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 	struct ext2_bmpthdr *hdr = (struct ext2_bmpthdr *)&inode->i_block[0];
 	blk_t addr_per_block = EXT2_BMPT_ADDR_PER_BLOCK(fs->blocksize);
 	int nr_levels = ext2fs_le32_to_cpu(hdr->h_levels);
-	struct ext2_bmptirec irec, ind_parent, dbirec;
+	struct ext2_bmptirec irec, ind_parent, dbirec, this_irec;
 	errcode_t retval = 0;
 	int can_insert = BMAP_SET | BMAP_ALLOC;
 	int i = 0, off;
@@ -307,6 +306,7 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 	if (!(bmap_flags & BMAP_SET))
 		ext2_bmpt_irec_clear(phys_blk);
 	ext2_bmpt_irec_clear(&dbirec);
+	ext2_bmpt_irec_clear(&this_irec); // For debugging purpose
 
 	if (ext2fs_le32_to_cpu(hdr->h_magic) != EXT2_BMPT_HDR_MAGIC) {
 		if (!can_insert)
@@ -344,6 +344,7 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 		if (retval)
 			goto done;
 
+		this_irec = irec;
 		off = ext2_bmpt_offsets(fs, i, block);
 		if (ext2_bmpt_rec_is_null(
 			    &((struct ext2_bmptrec *)block_buf)[off]) &&
@@ -365,7 +366,7 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 			if (retval)
 				goto done;
 			ind_new = i;
-			ind_parent = irec;
+			ind_parent = this_irec;
 			ind_offs = off;
 			irec = ind_irecs[0];
 			blocks_alloc += ind_new;
@@ -383,7 +384,7 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 		ext2_bmpt_irec2rec(phys_blk,
 				   &((struct ext2_bmptrec *)block_buf)[off]);
 		for (j = 0; j < EXT2_BMPT_N_DUPS; j++)
-			blks[j] = irec.b_blocks[j];
+			blks[j] = this_irec.b_blocks[j];
 		retval = io_channel_write_blk64_multiple(
 			fs->io, blks, 1, EXT2_BMPT_N_DUPS, block_buf);
 		if (retval)
@@ -420,7 +421,7 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 				   &((struct ext2_bmptrec *)block_buf)[off]);
 
 		for (j = 0; j < EXT2_BMPT_N_DUPS; j++)
-			blks[j] = irec.b_blocks[j];
+			blks[j] = this_irec.b_blocks[j];
 		retval = io_channel_write_blk64_multiple(
 			fs->io, blks, 1, EXT2_BMPT_N_DUPS, block_buf);
 		if (retval)
