@@ -291,14 +291,14 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 	struct ext2_bmpthdr *hdr = (struct ext2_bmpthdr *)&inode->i_block[0];
 	blk_t addr_per_block = EXT2_BMPT_ADDR_PER_BLOCK(fs->blocksize);
 	int nr_levels = ext2fs_le32_to_cpu(hdr->h_levels);
-	struct ext2_bmptirec irec, ind_parent, dbirec, this_irec;
+	struct ext2_bmptirec irec, dbirec;
 	errcode_t retval = 0;
 	int can_insert = BMAP_SET | BMAP_ALLOC;
 	int i = 0, off;
 	struct ext2_bmptirec *ind_irecs = NULL;
 	char *ind_blocks[EXT2_BMPT_MAXLEVELS], *buf = NULL;
 	blk_t blocks_alloc = 0;
-	int ind_new = 0;
+	int ind_new = -1;
 	int ind_offs = -1;
 
 	if (ret_flags)
@@ -306,7 +306,6 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 	if (!(bmap_flags & BMAP_SET))
 		ext2_bmpt_irec_clear(phys_blk);
 	ext2_bmpt_irec_clear(&dbirec);
-	ext2_bmpt_irec_clear(&this_irec); // For debugging purpose
 
 	if (ext2fs_le32_to_cpu(hdr->h_magic) != EXT2_BMPT_HDR_MAGIC) {
 		if (!can_insert)
@@ -336,42 +335,46 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 		return ext2fs_bmpt_linear(fs, ino, inode, block_buf, bmap_flags,
 					  block, ret_flags, phys_blk);
 
+	ind_new = nr_levels - 1;
+
 	retval = ext2fs_get_array(nr_levels, fs->blocksize, &buf);
 	if (retval)
 		goto done;
+	retval = ext2fs_get_array(nr_levels,
+				  nr_levels * sizeof(struct ext2_bmptirec),
+				  &ind_irecs);
+	if (retval)
+		goto done;
+	memset(ind_irecs, 0, nr_levels * sizeof(struct ext2_bmptirec));
+
 	ind_blocks[0] = buf;
 	for (i = 1; i < nr_levels; i++)
 		ind_blocks[i] = ind_blocks[i - 1] + fs->blocksize;
 
-	i = nr_levels;
 	ext2_bmpt_rec2irec(&hdr->h_root, &irec);
-	while (i--) {
+	for (i = 0; i < nr_levels; i++) {
 		retval = io_channel_read_blk64(fs->io, irec.b_blocks[0], 1,
 					       ind_blocks[i]);
 		if (retval)
 			goto done;
 
-		this_irec = irec;
+		ind_irecs[i] = irec;
 		off = ext2_bmpt_offsets(fs, i, block);
 		if (ext2_bmpt_rec_is_null(
 			    &((struct ext2_bmptrec *)ind_blocks[i])[off]) &&
-		    i) {
+		    i != nr_levels - 1) {
 			blk64_t blks[EXT2_BMPT_N_DUPS];
 
 			if (!can_insert)
 				goto done;
-			retval = ext2fs_get_array(
-				i, sizeof(struct ext2_bmptirec), &ind_irecs);
-			if (retval)
-				goto done;
-			memset(ind_irecs, 0, i * sizeof(struct ext2_bmptirec));
+
 			retval = ext2fs_bmpt_build_branch(fs, ino, block, i,
-							  ind_irecs);
+							  &ind_irecs[i]);
 			if (retval)
 				goto done;
 			ind_new = i;
-			ind_parent = this_irec;
 			ind_offs = off;
+
 			irec = ind_irecs[0];
 			blocks_alloc += ind_new;
 		} else {
@@ -385,12 +388,14 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 		blk64_t blks[EXT2_BMPT_N_DUPS];
 		int j;
 
-		ext2_bmpt_irec2rec(
-			phys_blk, &((struct ext2_bmptrec *)ind_blocks[0])[off]);
+		ext2_bmpt_irec2rec(phys_blk,
+				   &((struct ext2_bmptrec *)
+					     ind_blocks[nr_levels - 1])[off]);
 		for (j = 0; j < EXT2_BMPT_N_DUPS; j++)
-			blks[j] = this_irec.b_blocks[j];
+			blks[j] = ind_irecs[nr_levels - 1].b_blocks[j];
 		retval = io_channel_write_blk64_multiple(
-			fs->io, blks, 1, EXT2_BMPT_N_DUPS, ind_blocks[0]);
+			fs->io, blks, 1, EXT2_BMPT_N_DUPS,
+			ind_blocks[nr_levels - 1]);
 		if (retval)
 			goto done;
 	} else if (ext2_bmpt_irec_is_null(&irec) && can_insert) {
@@ -421,13 +426,15 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 			blocks_alloc++;
 		}
 
-		ext2_bmpt_irec2rec(
-			&dbirec, &((struct ext2_bmptrec *)ind_blocks[0])[off]);
+		ext2_bmpt_irec2rec(&dbirec,
+				   &((struct ext2_bmptrec *)
+					     ind_blocks[nr_levels - 1])[off]);
 
 		for (j = 0; j < EXT2_BMPT_N_DUPS; j++)
-			blks[j] = this_irec.b_blocks[j];
+			blks[j] = ind_irecs[nr_levels - 1].b_blocks[j];
 		retval = io_channel_write_blk64_multiple(
-			fs->io, blks, 1, EXT2_BMPT_N_DUPS, ind_blocks[0]);
+			fs->io, blks, 1, EXT2_BMPT_N_DUPS,
+			ind_blocks[nr_levels - 1]);
 		if (retval)
 			goto done;
 	}
@@ -436,23 +443,24 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 	 * We insert any newly created indirection blocks near the end, if any.
 	 * This makes reverting failed attempts easier.
 	 */
-	if (ind_new) {
+	if (ind_new != nr_levels - 1) {
 		blk64_t blks[EXT2_BMPT_N_DUPS];
 		int j;
 
-		ext2_bmpt_irec2rec(
-			&ind_irecs[0],
-			&((struct ext2_bmptrec *)ind_blocks[ind_new])[ind_offs]);
+		ext2_bmpt_irec2rec(&ind_irecs[0],
+				   &((struct ext2_bmptrec *)
+					     ind_blocks[ind_new])[ind_offs]);
 		for (j = 0; j < EXT2_BMPT_N_DUPS; j++)
-			blks[j] = ind_parent.b_blocks[j];
+			blks[j] = ind_irecs[ind_new].b_blocks[j];
 		retval = io_channel_write_blk64_multiple(
 			fs->io, blks, 1, EXT2_BMPT_N_DUPS, ind_blocks[ind_new]);
 		if (retval)
 			goto done;
 	}
 
-	ext2_bmpt_rec2irec(&((struct ext2_bmptrec *)ind_blocks[0])[off],
-			   phys_blk);
+	ext2_bmpt_rec2irec(
+		&((struct ext2_bmptrec *)ind_blocks[nr_levels - 1])[off],
+		phys_blk);
 	if (can_insert)
 		ext2fs_iblk_add_blocks(fs, inode, blocks_alloc);
 
@@ -460,7 +468,7 @@ done:
 	if (retval) {
 		int j;
 
-		for (i = 0; i < ind_new; i++) {
+		for (i = nr_levels - 1; i > ind_new; i--) {
 			for (j = 0; j < EXT2_BMPT_N_DUPS; j++) {
 				if (ind_irecs[i].b_blocks[j])
 					ext2fs_block_alloc_stats2(
