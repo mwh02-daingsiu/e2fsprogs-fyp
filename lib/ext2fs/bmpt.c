@@ -155,10 +155,13 @@ errcode_t ext2fs_increase_inds(ext2_filsys fs, ext2_ino_t ino,
 
 	nr_levels = ext2fs_le32_to_cpu(hdr->h_levels);
 	ninds = add_levels;
+	if (ext2_bmpt_rec_is_null(&hdr->h_root))
+		ninds = 1;
 
 	retval = ext2fs_get_array(ninds, fs->blocksize, &buf);
 	if (retval)
 		return retval;
+	memset(buf, 0, fs->blocksize * ninds);
 	retval = ext2fs_get_array(ninds, sizeof(struct ext2_bmptirec), &irecs);
 	if (retval) {
 		ext2fs_free_mem(&buf);
