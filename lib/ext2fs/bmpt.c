@@ -617,7 +617,7 @@ errcode_t ext2fs_punch_bmpt(ext2_filsys fs, ext2_ino_t ino,
 		goto done;
 	}
 
-	addr_per_block = (blk_t)fs->blocksize >> EXT2_BMPTREC_SZ;
+	addr_per_block = (blk_t)fs->blocksize >> EXT2_BMPTREC_SZ_BITS;
 	nr_levels = ext2fs_le32_to_cpu(hdr->h_levels);
 
 	for (i = 0; i < nr_levels; i++)
@@ -774,7 +774,7 @@ errcode_t ext2fs_bmpt_dump(ext2_filsys fs, ext2_ino_t ino, char *block_buf,
 		goto done;
 	}
 
-	addr_per_block = (blk_t)fs->blocksize >> EXT2_BMPTREC_SZ;
+	addr_per_block = (blk_t)fs->blocksize >> EXT2_BMPTREC_SZ_BITS;
 	nr_levels = ext2fs_le32_to_cpu(hdr->h_levels);
 
 	for (i = 0; i < nr_levels; i++)
