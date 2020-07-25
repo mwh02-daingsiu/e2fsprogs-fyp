@@ -1080,6 +1080,21 @@ static int print_blocks_proc(ext2_filsys fs EXT2FS_ATTR((unused)),
 	return 0;
 }
 
+static int print_bmpt_blocks_proc(ext2_filsys fs EXT2FS_ATTR((unused)),
+			     int dup_on,
+			     struct ext2_bmptirec *blocknr,
+			     e2_blkcnt_t blockcnt EXT2FS_ATTR((unused)),
+			     struct ext2_bmptirec *ref_block EXT2FS_ATTR((unused)),
+			     int ref_offset EXT2FS_ATTR((unused)),
+			     void *private EXT2FS_ATTR((unused)))
+{
+	if (dup_on)
+		printf("[%llu, %llu, %llu] ", (blk64_t)blocknr->b_blocks[0], (blk64_t)blocknr->b_blocks[1], (blk64_t)blocknr->b_blocks[2]);
+	else
+		printf("[%llu] ", (blk64_t)blocknr->b_blocks[0]);
+	return 0;
+}
+
 void do_blocks(int argc, char *argv[])
 {
 	ext2_ino_t	inode;
@@ -1093,6 +1108,23 @@ void do_blocks(int argc, char *argv[])
 
 	ext2fs_block_iterate3(current_fs, inode, BLOCK_FLAG_READ_ONLY, NULL,
 			      print_blocks_proc, NULL);
+	fputc('\n', stdout);
+	return;
+}
+
+void do_bmpt_blocks(int argc, char *argv[])
+{
+	ext2_ino_t	inode;
+
+	if (check_fs_open(argv[0]))
+		return;
+
+	if (common_inode_args_process(argc, argv, &inode, 0)) {
+		return;
+	}
+
+	ext2fs_bmpt_block_iterate(current_fs, inode, BLOCK_FLAG_READ_ONLY, NULL,
+			      print_bmpt_blocks_proc, NULL);
 	fputc('\n', stdout);
 	return;
 }
@@ -2065,6 +2097,79 @@ void do_bmap(int argc, char *argv[])
 		return;
 	}
 	printf("%llu", pblk);
+	if (ret_flags & BMAP_RET_UNINIT)
+		fputs(" (uninit)", stdout);
+	fputc('\n', stdout);
+}
+
+void do_bmpt_bmap(int argc, char *argv[])
+{
+	ext2_ino_t	ino;
+	blk64_t		blk;
+	struct ext2_bmptirec block_irec;
+	int		c, err, flags = 0, ret_flags = 0;
+	errcode_t	errcode;
+
+	ext2_bmpt_irec_clear(&block_irec);
+
+	if (check_fs_open(argv[0]))
+		return;
+
+	reset_getopt();
+	while ((c = getopt (argc, argv, "a")) != EOF) {
+		switch (c) {
+		case 'a':
+			flags |= BMAP_ALLOC;
+			break;
+		default:
+			goto print_usage;
+		}
+	}
+
+	if (argc <= optind+1) {
+	print_usage:
+		com_err(0, 0,
+			"Usage: bmap [-a] <file> logical_blk [physical_blk]");
+		return;
+	}
+
+	ino = string_to_inode(argv[optind++]);
+	if (!ino)
+		return;
+	err = strtoblk(argv[0], argv[optind++], "logical block", &blk);
+	if (err)
+		return;
+
+	if (argc > optind+EXT2_BMPT_N_DUPS)
+		goto print_usage;
+
+	if (argc >= optind+1) {
+		int n_blocks = argc - optind;
+		int i, start = optind;
+		optind += n_blocks;
+		for (i = 0; i < n_blocks; i++) {
+			blk64_t pblk;
+			err = strtoblk(argv[0], argv[start + i],
+				"physical block", &pblk);
+			if (err)
+				return;
+			block_irec.b_blocks[i] = pblk;
+		}
+		if (flags & BMAP_ALLOC) {
+			com_err(0, 0, "Can't set and allocate a block");
+			return;
+		}
+		flags |= BMAP_SET;
+	}
+
+	errcode = ext2fs_bmpt_bmap2(current_fs, ino, 0, 0, flags, blk,
+			       &ret_flags, &block_irec);
+	if (errcode) {
+		com_err(argv[0], errcode,
+			"while mapping logical block %llu\n", blk);
+		return;
+	}
+	printf("[%llu, %llu, %llu]", (blk64_t)block_irec.b_blocks[0], (blk64_t)block_irec.b_blocks[1], (blk64_t)block_irec.b_blocks[2]);
 	if (ret_flags & BMAP_RET_UNINIT)
 		fputs(" (uninit)", stdout);
 	fputc('\n', stdout);

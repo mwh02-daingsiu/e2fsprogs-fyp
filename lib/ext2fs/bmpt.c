@@ -310,6 +310,9 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 		ext2_bmpt_irec_clear(phys_blk);
 	ext2_bmpt_irec_clear(&dbirec);
 
+	if (!(inode->i_flags & EXT2_FYP_BMPT_FL))
+		return EXT2_ET_INODE_NOT_EXTENT;
+
 	if (ext2fs_le32_to_cpu(hdr->h_magic) != EXT2_BMPT_HDR_MAGIC) {
 		if (!can_insert)
 			goto done;

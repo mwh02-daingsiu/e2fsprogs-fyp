@@ -748,6 +748,9 @@ errcode_t ext2fs_bmpt_block_iterate(
 	if (inode.i_flags & EXT4_INLINE_DATA_FL)
 		return EXT2_ET_INLINE_DATA_CANT_ITERATE;
 
+	if (!(inode.i_flags & EXT2_FYP_BMPT_FL))
+		return EXT2_ET_INODE_NOT_EXTENT;
+
 	/*
 	 * Check to see if we need to limit large files
 	 */
