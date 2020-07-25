@@ -640,6 +640,157 @@ done:
 	return retval;
 }
 
+struct bmpt_walk_ctx {
+	ext2_filsys fs;
+	struct ext2_inode *inode;
+	unsigned int call_on_index : 1;
+	unsigned int aborted : 1;
+	int (*callback)(e2_blkcnt_t iblk, const struct ext2_bmptirec *blks,
+			int depth, int level, int dup_on, void *priv_data);
+	void *priv_data;
+};
+
+static errcode_t bmpt_dump_walk(struct bmpt_walk_ctx *ctx, char *block_buf,
+				struct ext2_bmptrec *p, int level,
+				blk64_t start, blk64_t count, int max,
+				blk64_t iblk)
+{
+	struct ext2_bmpthdr *hdr =
+		(struct ext2_bmpthdr *)&ctx->inode->i_block[0];
+	errcode_t retval;
+	struct ext2_bmptirec b;
+	int i;
+	blk64_t offset, incr;
+	int depth = hdr->h_levels - level - 1;
+
+	incr = 1ULL << ((EXT2_BLOCK_SIZE_BITS(ctx->fs->super) -
+			 EXT2_BMPTREC_SZ_BITS) *
+			level);
+	for (i = 0, offset = 0; i < max;
+	     i++, p++, offset += incr, iblk += incr) {
+		if (offset >= start + count)
+			break;
+		if (ext2_bmpt_rec_is_null(p) || (offset + incr) <= start)
+			continue;
+		ext2_bmpt_rec2irec(p, &b);
+		if (level > 0) {
+			blk_t start2;
+			int flags;
+
+			retval = io_channel_read_blk64(
+				ctx->fs->io, b.b_blocks[0], 1, block_buf);
+			if (retval)
+				return retval;
+			if (ctx->call_on_index) {
+				flags = ctx->callback(
+					iblk, &b, depth, level,
+					ctx->inode->i_flags &
+						EXT2_FYP_DUP_RUN_FL,
+					ctx->priv_data);
+				if (flags & BLOCK_ABORT) {
+					ctx->aborted = 1;
+					break;
+				}
+			}
+			start2 = (start > offset) ? start - offset : 0;
+			retval = bmpt_dump_walk(
+				ctx, block_buf + ctx->fs->blocksize,
+				(struct ext2_bmptrec *)block_buf, level - 1,
+				start2, count - offset,
+				ctx->fs->blocksize >> EXT2_BMPTREC_SZ_BITS,
+				iblk);
+			if (retval)
+				return retval;
+			if (ctx->aborted)
+				break;
+		} else {
+			int flags;
+
+			flags = ctx->callback(iblk, &b, depth, level,
+					      ctx->inode->i_flags &
+						      EXT2_FYP_DUP_RUN_FL,
+					      ctx->priv_data);
+			if (flags & BLOCK_ABORT) {
+				ctx->aborted = 1;
+				break;
+			}
+		}
+	}
+
+	return 0;
+}
+
+#define BLK_T_MAX ((blk_t)~0ULL)
+errcode_t ext2fs_bmpt_dump(ext2_filsys fs, ext2_ino_t ino, char *block_buf,
+			   blk64_t start, blk64_t end, int call_on_index,
+			   int (*callback)(e2_blkcnt_t iblk,
+					   const struct ext2_bmptirec *blks,
+					   int depth, int level, int dup_on,
+					   void *priv_data),
+			   void *priv_data)
+{
+	errcode_t retval;
+	char *buf = 0;
+	int nr_levels;
+	int i;
+	blk_t addr_per_block;
+	blk64_t max = 1;
+	blk_t count;
+	struct bmpt_walk_ctx ctx;
+	struct ext2_inode inode;
+	struct ext2_bmpthdr *hdr = (struct ext2_bmpthdr *)&inode.i_block[0];
+	struct ext2_bmptrec root_rec;
+
+	retval = ext2fs_read_inode(fs, ino, &inode);
+	if (retval)
+		return retval;
+
+	ctx.fs = fs;
+	ctx.inode = &inode;
+	ctx.call_on_index = call_on_index;
+	ctx.aborted = 0;
+	ctx.callback = callback;
+	ctx.priv_data = priv_data;
+	root_rec = hdr->h_root;
+
+	/* Check start/end don't overflow the 2^32-1 indirect block limit */
+	if (start > BLK_T_MAX)
+		return 0;
+	if (end >= BLK_T_MAX || end - start + 1 >= BLK_T_MAX)
+		count = BLK_T_MAX - start;
+	else
+		count = end - start + 1;
+
+	if (!block_buf) {
+		retval = ext2fs_get_array(EXT2_BMPT_MAXLEVELS, fs->blocksize,
+					  &buf);
+		if (retval)
+			return retval;
+		block_buf = buf;
+	}
+
+	if (ext2fs_le32_to_cpu(hdr->h_magic) != EXT2_BMPT_HDR_MAGIC) {
+		retval = 0;
+		goto done;
+	}
+
+	addr_per_block = (blk_t)fs->blocksize >> EXT2_BMPTREC_SZ;
+	nr_levels = ext2fs_le32_to_cpu(hdr->h_levels);
+
+	for (i = 0; i < nr_levels; i++)
+		max *= addr_per_block;
+
+	retval = bmpt_dump_walk(&ctx, block_buf, &hdr->h_root, nr_levels, start,
+				count, max, 0);
+	if (retval)
+		goto done;
+
+done:
+	if (buf)
+		ext2fs_free_mem(&buf);
+	return retval;
+}
+
 errcode_t ext2fs_init_bmpt(ext2_filsys fs, ext2_ino_t ino,
 			   struct ext2_inode *inode, int dup_on)
 {

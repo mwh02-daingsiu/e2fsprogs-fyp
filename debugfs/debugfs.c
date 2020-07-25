@@ -772,6 +772,37 @@ static void dump_extents(FILE *f, const char *prefix, ext2_ino_t ino,
 	ext2fs_extent_free(handle);
 }
 
+struct dump_bmpt_walk_ctx {
+	FILE *f;
+	const char *prefix;
+};
+
+static int dump_bmpt_cb(e2_blkcnt_t iblk, const struct ext2_bmptirec *blks,
+			int depth, int level, int dup_on, void *priv_data)
+{
+	struct dump_bmpt_walk_ctx *walk_ctx = priv_data;
+
+	fprintf(walk_ctx->f, "%siblk:%llu phys:[%u, %u, %u], level: %d, dup: %s\n",
+		walk_ctx->prefix,
+		iblk,
+		blks->b_blocks[0],
+		blks->b_blocks[1],
+		blks->b_blocks[2],
+		level,
+		dup_on ? "Yes" : "No");
+	return 0;
+}
+
+static void dump_bmpt(FILE *f, const char *prefix, ext2_ino_t ino, int call_on_index)
+{
+	struct dump_bmpt_walk_ctx walk_ctx;
+
+	walk_ctx.f = f;
+	walk_ctx.prefix = prefix;
+	ext2fs_bmpt_dump(current_fs, ino, NULL, 0, -1ull, call_on_index,
+			 dump_bmpt_cb, &walk_ctx);
+}
+
 static void dump_inline_data(FILE *out, const char *prefix, ext2_ino_t inode_num)
 {
 	errcode_t retval;
@@ -1069,6 +1100,50 @@ void do_dump_extents(int argc, char **argv)
 
 	out = open_pager();
 	dump_extents(out, "", ino, flags, logical_width, physical_width);
+	close_pager(out);
+	return;
+}
+
+void do_dump_bmpt(int argc, char **argv)
+{
+	struct ext2_inode inode;
+	ext2_ino_t	ino;
+	FILE		*out;
+	int		c;
+	int		call_on_index = 0;
+
+	reset_getopt();
+	while ((c = getopt(argc, argv, "i")) != EOF) {
+		switch (c) {
+		case 'i':
+			call_on_index = 1;
+			break;
+		}
+	}
+
+	if (argc != optind + 1) {
+		com_err(0, 0, "Usage: dump_bmpt [-i] file");
+		return;
+	}
+
+	if (check_fs_open(argv[0]))
+		return;
+
+	ino = string_to_inode(argv[optind]);
+	if (ino == 0)
+		return;
+
+	if (debugfs_read_inode(ino, &inode, argv[0]))
+		return;
+
+	if ((inode.i_flags & EXT2_FYP_BMPT_FL) == 0) {
+		fprintf(stderr, "%s: does not uses bmpt block maps\n",
+			argv[optind]);
+		return;
+	}
+
+	out = open_pager();
+	dump_bmpt(out, "", ino, call_on_index);
 	close_pager(out);
 	return;
 }

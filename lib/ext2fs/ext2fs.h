@@ -1002,6 +1002,12 @@ extern errcode_t ext2fs_bmpt_block_iterate(ext2_filsys fs,
 						    int		ref_offset,
 						    void	*priv_data),
 						    void *priv_data);
+extern errcode_t ext2fs_bmpt_dump(
+	ext2_filsys fs, ext2_ino_t ino, char *block_buf, blk64_t start,
+	blk64_t end, int call_on_index,
+	int (*callback)(e2_blkcnt_t iblk, const struct ext2_bmptirec *blks,
+			int depth, int level, int dup_on, void *priv_data),
+	void *priv_data);
 
 /* check_desc.c */
 extern errcode_t ext2fs_check_desc(ext2_filsys fs);

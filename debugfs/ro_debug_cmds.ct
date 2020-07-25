@@ -42,6 +42,9 @@ request do_stat, "Show inode information ",
 request do_dump_extents, "Dump extents information ",
 	dump_extents, extents, ex;
 
+request do_dump_bmpt, "Dump bmpt",
+	dump_bmpt;
+
 request do_blocks, "Dump blocks used by an inode ",
 	blocks;
 
