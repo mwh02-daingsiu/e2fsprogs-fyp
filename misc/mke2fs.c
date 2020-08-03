@@ -2107,6 +2107,7 @@ profile_error:
 	ext2fs_blocks_count_set(&fs_param, fs_blocks_count);
 
 	if (ext2fs_has_feature_fyp(&fs_param)) {
+		/* Set the number of duplicates for data blocks of non-regular-file I-node */
 		fs_param.s_dupinode_dup_cnt = 2;
 	}
 

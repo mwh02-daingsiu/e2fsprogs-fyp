@@ -87,6 +87,7 @@ static int expand_dir_proc(ext2_filsys	fs,
 		return BLOCK_CHANGED;
 }
 
+/* Expanding directory for directory I-node under BMPT scheme */
 static int expand_bmpt_dir_proc(ext2_filsys	fs,
 				int dup_on,
 				struct ext2_bmptirec	*block_irec,
@@ -107,6 +108,7 @@ static int expand_bmpt_dir_proc(ext2_filsys	fs,
 	}
 
 	if (dup_on) {
+		/* Allocate duplicates */
 		retval = ext2fs_alloc_dup_block(fs, &es->goalirec, 0, &new_blk);
 		if (retval) {
 			es->err = retval;
@@ -130,6 +132,7 @@ static int expand_bmpt_dir_proc(ext2_filsys	fs,
 			return BLOCK_ABORT;
 		}
 		es->done = 1;
+		/* Write duplicates of the directory block */
 		retval = ext2fs_write_dir_block4_multiple(fs, &new_blk, block, 0,
 							  es->dir);
 		ext2fs_free_mem(&block);
@@ -147,6 +150,7 @@ static int expand_bmpt_dir_proc(ext2_filsys	fs,
 			return BLOCK_ABORT;
 		}
 		memset(block, 0, fs->blocksize);
+		/* Write duplicates of the directory block */
 		retval = io_channel_write_blk64_multiple(fs->io, blks, 1, n, block);
 		ext2fs_free_mem(&block);
 	}
@@ -196,6 +200,7 @@ errcode_t ext2fs_expand_dir(ext2_filsys fs, ext2_ino_t dir)
 	es.dir = dir;
 
 	if (ext2fs_has_feature_fyp(fs->super)) {
+		/* Use the BMPT bmap helper to iterate directory I-nodes under BMPT bmap scheme */
 		retval = ext2fs_bmpt_block_iterate(fs, dir, BLOCK_FLAG_APPEND,
 					       0, expand_bmpt_dir_proc, &es);
 	} else {

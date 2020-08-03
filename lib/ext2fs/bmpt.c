@@ -142,6 +142,7 @@ done:
 	return retval;
 }
 
+/* This routine grow the BMPT tree by @add_levels */
 errcode_t ext2fs_increase_inds(ext2_filsys fs, ext2_ino_t ino,
 			       struct ext2_inode *inode, int add_levels)
 {
@@ -191,11 +192,14 @@ errcode_t ext2fs_increase_inds(ext2_filsys fs, ext2_ino_t ino,
 			blks[j] = irecs[i].b_blocks[j];
 
 		if (i != ninds - 1) {
+			/* We are going to build the branch, fill the allocation
+			 * to the lower-level nodes */
 			ext2_bmpt_irec2rec(
 				&irecs[i + 1],
 				&((struct ext2_bmptrec *)block_buf[i])[0]);
 
 		} else {
+			/* Fill the allocation to the original root of the BMPT tree */
 			((struct ext2_bmptrec *)block_buf[i])[0] = hdr->h_root;
 		}
 		retval = io_channel_write_blk64_multiple(
@@ -204,6 +208,7 @@ errcode_t ext2fs_increase_inds(ext2_filsys fs, ext2_ino_t ino,
 			goto done;
 	}
 
+	/* Update the tree number of levels field */
 	hdr->h_levels = nr_levels + add_levels;
 	ext2_bmpt_irec2rec(&irecs[0], &hdr->h_root);
 	retval = ext2fs_write_inode(fs, ino, inode);
@@ -223,6 +228,9 @@ done:
 	return retval;
 }
 
+/*
+ * This will be called if the height of the BMPT tree is 0.
+ */
 static errcode_t ext2fs_bmpt_linear(ext2_filsys fs, ext2_ino_t ino,
 				    struct ext2_inode *inode, char *block_buf,
 				    int bmap_flags, blk64_t block,
@@ -235,6 +243,7 @@ static errcode_t ext2fs_bmpt_linear(ext2_filsys fs, ext2_ino_t ino,
 	errcode_t retval = 0;
 
 	if (bmap_flags & BMAP_SET) {
+		/* just set the root pointer in this case */
 		ext2_bmpt_irec2rec(phys_blk, &hdr->h_root);
 		return ext2fs_write_inode(fs, ino, inode);
 	}
@@ -286,6 +295,11 @@ done:
 	return retval;
 }
 
+/*
+ * BMPT tree block-mapping.
+ *
+ * This allows: looking up blocks, and adding allocations to an I-node
+ */
 errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 			    struct ext2_inode *inode, char *block_buf,
 			    int bmap_flags, blk64_t block, int *ret_flags,
@@ -310,12 +324,17 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 		ext2_bmpt_irec_clear(phys_blk);
 	ext2_bmpt_irec_clear(&dbirec);
 
+	/*
+	 * If the I-node isn't flagged as BMPT_FL, bail
+	 */
 	if (!(inode->i_flags & EXT2_FYP_BMPT_FL))
 		return EXT2_ET_INODE_NOT_EXTENT;
 
 	if (ext2fs_le32_to_cpu(hdr->h_magic) != EXT2_BMPT_HDR_MAGIC) {
 		if (!can_insert)
 			goto done;
+		/* Initialize the BMPT tree if there isn't one in the I-node,
+		 * and we are allowed to modify the tree */
 		retval = ext2fs_init_bmpt(fs, ino, inode,
 					  inode->i_flags & EXT2_FYP_DUP_RUN_FL);
 		if (retval)
@@ -323,6 +342,7 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 	}
 
 	if (!(bmap_flags & can_insert)) {
+		/* Check if we can insert or not. If we can't we return holes */
 		if (ext2_bmpt_min_numlevels(fs, (blk_t)block) > nr_levels)
 			goto done;
 	} else {
@@ -337,6 +357,8 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 		}
 	}
 
+	/* For no height BMPT tree we just need to deal with a linear array of
+	 * BMPT records */
 	if (!nr_levels)
 		return ext2fs_bmpt_linear(fs, ino, inode, block_buf, bmap_flags,
 					  block, ret_flags, phys_blk);
@@ -358,6 +380,7 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 		ind_blocks[i] = ind_blocks[i - 1] + fs->blocksize;
 
 	ext2_bmpt_rec2irec(&hdr->h_root, &irec);
+	/* Now we need to walk the tree. We go from higher level to the leaf (0-level) node */
 	for (i = 0; i < nr_levels; i++) {
 		retval = io_channel_read_blk64(fs->io, irec.b_blocks[0], 1,
 					       ind_blocks[i]);
@@ -371,9 +394,12 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 		    i != nr_levels - 1) {
 			blk64_t blks[EXT2_BMPT_N_DUPS];
 
+			/* If we meet hole, and we are not allowed to insert, we just return holes */
 			if (!can_insert)
 				goto done;
 
+			/* We need to allocate a branch at this hole, but don't insert a pointer to the branch yet.
+			 * This helps we recover from ENOSPC */
 			retval = ext2fs_bmpt_build_branch(fs, ino, block, i,
 							  &ind_irecs[i]);
 			if (retval)
@@ -391,6 +417,7 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 	}
 
 	if (bmap_flags & BMAP_SET) {
+		/* Set the slot to the BMPT record provided by caller */
 		blk64_t blks[EXT2_BMPT_N_DUPS];
 		int j;
 
@@ -411,6 +438,8 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 
 		if (ext2fs_cpu_to_le32(hdr->h_flags) &
 		    EXT2_BMPT_HDR_FLAGS_DUP) {
+			/* For BMPT tree with its duplicated flag on, we
+			 * allocate a number of blocks for duplication */
 			for (j = 0; j < fs->super->s_dupinode_dup_cnt; j++)
 				goal[j] =
 					ext2_bmpt_find_goal_noiblk(fs, ino, j);
@@ -432,6 +461,7 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 			blocks_alloc++;
 		}
 
+		/* Now we fill the allocation at the leaf level */
 		ext2_bmpt_irec2rec(&dbirec,
 				   &((struct ext2_bmptrec *)
 					     ind_blocks[nr_levels - 1])[off]);
@@ -464,6 +494,7 @@ errcode_t ext2fs_bmpt_bmap2(ext2_filsys fs, ext2_ino_t ino,
 			goto done;
 	}
 
+	/* Return the BMPT records at the leaf node level */
 	ext2_bmpt_rec2irec(
 		&((struct ext2_bmptrec *)ind_blocks[nr_levels - 1])[off],
 		phys_blk);
@@ -533,12 +564,14 @@ static errcode_t bmpt_punch(ext2_filsys fs, struct ext2_inode *inode,
 	       << ((EXT2_BLOCK_SIZE_BITS(fs->super) - EXT2_BMPTREC_SZ_BITS) *
 		   level);
 	for (i = 0, offset = 0; i < max; i++, p++, offset += incr) {
+		/* Skip until we are inside the range specified by the caller */
 		if (offset >= start + count)
 			break;
 		if (ext2_bmpt_rec_is_null(p) || (offset + incr) <= start)
 			continue;
 		ext2_bmpt_rec2irec(p, &b);
 		if (level > 0) {
+			/* For non-leaf level, we go further down by recursion */
 			blk_t start2;
 #ifdef PUNCH_DEBUG
 			printf("Reading indirect block %u\n", b);
@@ -561,12 +594,15 @@ static errcode_t bmpt_punch(ext2_filsys fs, struct ext2_inode *inode,
 				fs->io, blks, 1, EXT2_BMPT_N_DUPS, block_buf);
 			if (retval)
 				return retval;
+			/* Skip the freeing of BMPT node if the BMPT node is not
+			 * empty yet */
 			if (!check_zero_block(block_buf, fs->blocksize))
 				continue;
 		}
 #ifdef PUNCH_DEBUG
 		printf("Freeing block %u (offset %llu)\n", b, offset);
 #endif
+		/* Free the BMPT record we currently are on */
 		for (j = 0; j < EXT2_BMPT_N_DUPS; j++) {
 			if (b.b_blocks[j])
 				ext2fs_block_alloc_stats2(fs, b.b_blocks[j],
@@ -581,6 +617,12 @@ static errcode_t bmpt_punch(ext2_filsys fs, struct ext2_inode *inode,
 	return ext2fs_iblk_sub_blocks(fs, inode, freed);
 }
 
+/*
+ * This routine punch holes in the BMPT tree for an I-node
+ *
+ * It recursively walks the BMPT tree, and free BMPT node
+ * that are completely filled with "holes"
+ */
 #define BLK_T_MAX ((blk_t)~0ULL)
 errcode_t ext2fs_punch_bmpt(ext2_filsys fs, ext2_ino_t ino,
 			    struct ext2_inode *inode, char *block_buf,
@@ -623,11 +665,13 @@ errcode_t ext2fs_punch_bmpt(ext2_filsys fs, ext2_ino_t ino,
 	for (i = 0; i < nr_levels; i++)
 		max *= addr_per_block;
 
+	/* We start from the top level */
 	retval = bmpt_punch(fs, inode, block_buf, &hdr->h_root, nr_levels,
 			    start, count, max);
 	if (retval)
 		goto done;
 
+	/* If the tree becomes empty, we reset the height of the tree to 0 */
 	if (memcmp(&root_rec, &hdr->h_root, sizeof(root_rec))) {
 		if (ext2_bmpt_rec_is_null(&hdr->h_root))
 			hdr->h_levels = 0;
@@ -720,6 +764,9 @@ static errcode_t bmpt_dump_walk(struct bmpt_walk_ctx *ctx, char *block_buf,
 	return 0;
 }
 
+/*
+ * This routine walks the BMPT tree
+ */
 #define BLK_T_MAX ((blk_t)~0ULL)
 errcode_t ext2fs_bmpt_dump(ext2_filsys fs, ext2_ino_t ino, char *block_buf,
 			   blk64_t start, blk64_t end, int call_on_index,
@@ -791,6 +838,10 @@ done:
 	return retval;
 }
 
+/*
+ * This routine initializes the @inode's i_block[] with two empty BMPT trees.
+ * The second tree is currently unused.
+ */
 errcode_t ext2fs_init_bmpt(ext2_filsys fs, ext2_ino_t ino,
 			   struct ext2_inode *inode, int dup_on)
 {

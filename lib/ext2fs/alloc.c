@@ -526,6 +526,12 @@ errcode_t ext2fs_alloc_range(ext2_filsys fs, int flags, blk64_t goal,
 	return retval;
 }
 
+/*
+ * Allocate dup-blocks, and store them in @ret
+ *
+ * This routine can only be called to allocate I-node data blocks, but not other
+ * kind of metadata blocks.
+ */
 errcode_t ext2fs_alloc_dup_block(ext2_filsys fs, struct ext2_bmptirec *goal,
 				 char *block_buf, struct ext2_bmptirec *ret)
 {

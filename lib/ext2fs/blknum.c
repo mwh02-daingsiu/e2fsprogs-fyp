@@ -294,7 +294,7 @@ blk64_t ext2fs_inode_table_loc(ext2_filsys fs, dgrp_t group)
 }
 
 /*
- * Return the inode table block of a group
+ * Return the backup inode table block of a group
  */
 blk_t ext2fs_dup_inode_table_loc(ext2_filsys fs, dgrp_t group, int which)
 {
@@ -324,7 +324,7 @@ void ext2fs_inode_table_loc_set(ext2_filsys fs, dgrp_t group, blk64_t blk)
 }
 
 /*
- * Set the inode table block of a group
+ * Set the dup inode table block of a group
  */
 void ext2fs_dup_inode_table_loc_set(ext2_filsys fs, dgrp_t group, int which,
 				    blk_t blk)

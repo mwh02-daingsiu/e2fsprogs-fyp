@@ -121,6 +121,7 @@ errcode_t ext2fs_write_dir_block4_multiple(ext2_filsys fs, struct ext2_bmptirec 
 	if (retval)
 		goto out;
 
+	/* Write to the duplicates (the total number of copies is in s_dupinode_dup_cnt) of the directory blocks */
 	retval = io_channel_write_blk64_multiple(fs->io, blks, 1, n, buf);
 
 out:

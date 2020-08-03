@@ -259,6 +259,10 @@ errcode_t ext2fs_allocate_group_table(ext2_filsys fs, dgrp_t group,
 	return 0;
 }
 
+/*
+ * Allocate the duplicated I-node tables for FS
+ * @which: specifies which group to be picked to allocate backups for the given @group
+ */
 errcode_t ext2fs_allocate_dup_inode_tables(ext2_filsys fs, dgrp_t group, int which,
 					   ext2fs_block_bitmap bmap)
 {
@@ -311,6 +315,8 @@ errcode_t ext2fs_allocate_tables(ext2_filsys fs)
 			return retval;
 	}
 
+	/* If the file system type is EXT2FYP, we generate backup inode tables
+	 * for each block group */
 	if (ext2fs_has_feature_fyp(fs->super)) {
 		dgrp_t curr_progress = i;
 		for (i = 0; i < fs->group_desc_count; i++, curr_progress += 2) {

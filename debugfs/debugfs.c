@@ -1104,6 +1104,9 @@ void do_dump_extents(int argc, char **argv)
 	return;
 }
 
+/*
+ * Dump the bmpt tree of a given inode
+ */
 void do_dump_bmpt(int argc, char **argv)
 {
 	struct ext2_inode inode;
@@ -1193,6 +1196,9 @@ void do_blocks(int argc, char *argv[])
 	return;
 }
 
+/*
+ * Print the mapping of given I-node block to its BMPT records
+ */
 void do_bmpt_blocks(int argc, char *argv[])
 {
 	ext2_ino_t inode;

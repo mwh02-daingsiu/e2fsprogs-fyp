@@ -954,6 +954,7 @@ errcode_t ext2fs_write_inode_full(ext2_filsys fs, ext2_ino_t ino,
 		memcpy((char *) fs->icache->buffer + (unsigned) offset,
 		       ptr, clen);
 
+		/* Write to the duplicated I-node table blocks as well */
 		for (j = 0; j < dups; j++) {
 			retval = io_channel_write_blk64(fs->io, block_nr[j], 1,
 							fs->icache->buffer);
